@@ -1,12 +1,59 @@
+version: "3.8"
+
 services:
-  aibot-redis:
-    image: redis:alpine
-    container_name: ebizmate-redis
-    restart: always
+  # --- PostgreSQL ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: ebizmate-postgres
+    environment:
+      POSTGRES_USER: ebizmate
+      POSTGRES_PASSWORD: ebizmate_dev
+      POSTGRES_DB: ebizmate
     ports:
-      - "6379:6379"
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
-      interval: 10s
+      test: [ "CMD-SHELL", "pg_isready -U ebizmate" ]
+      interval: 5s
       timeout: 5s
       retries: 5
+
+  # --- Redis ---
+  redis:
+    image: redis:7-alpine
+    container_name: ebizmate-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- NestJS API ---
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: ebizmate-api
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://ebizmate:ebizmate_dev@postgres:5432/ebizmate
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PORT: 3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
