@@ -1,18 +1,23 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import * as schema from "./schema";
+import * as schema from "./schema.js";
+export * from "./schema.js";
 
 const globalForDb = globalThis as unknown as {
     conn: Pool | undefined;
 };
 
+if (!process.env["DATABASE_URL"]) {
+    throw new Error("DATABASE_URL environment variable is missing. Database connection cannot be established.");
+}
+
 const conn = globalForDb.conn ?? new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: process.env["DATABASE_URL"],
     connectionTimeoutMillis: 10000,
     max: 10, // Explicit pool size to prevent connection exhaustion
 });
 
-if (process.env.NODE_ENV !== "production") globalForDb.conn = conn;
+if (process.env["NODE_ENV"] !== "production") globalForDb.conn = conn;
 
 export const db = drizzle(conn, { schema });
 

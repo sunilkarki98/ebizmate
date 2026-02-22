@@ -96,7 +96,7 @@ export default function EscalationsPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    escalations.map((esc) => (
+                                    escalations.map((esc: any) => (
                                         <TableRow key={esc.id}>
                                             <TableCell>
                                                 <Badge variant="outline">{esc.workspaceName || "—"}</Badge>

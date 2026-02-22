@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigService } from '@nestjs/config';
 import { AiController } from './ai.controller';
+import { CustomerController } from './customer.controller';
 import { AiService } from './ai.service';
 import { AiProcessor } from './ai.processor';
 
@@ -18,7 +19,7 @@ import { AiProcessor } from './ai.processor';
         }),
         BullModule.registerQueue({ name: 'ai' }),
     ],
-    controllers: [AiController],
+    controllers: [AiController, CustomerController],
     providers: [AiService, AiProcessor],
     exports: [AiService],
 })

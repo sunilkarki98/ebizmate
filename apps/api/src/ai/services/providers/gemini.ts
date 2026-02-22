@@ -1,17 +1,27 @@
-import { GoogleGenAI } from "@google/genai";
+import type { GoogleGenAI } from "@google/genai";
 import { AIProvider, ChatParams, ChatResult, EmbedResult } from "../../../common/types/ai";
 
 export class GeminiProvider implements AIProvider {
     readonly name = "gemini" as const;
-    private client: GoogleGenAI;
+    private client: GoogleGenAI | null = null;
+    private apiKey: string;
     private model: string;
 
     constructor(apiKey: string, model: string) {
-        this.client = new GoogleGenAI({ apiKey });
+        this.apiKey = apiKey;
         this.model = model;
     }
 
+    private async getClient(): Promise<GoogleGenAI> {
+        if (!this.client) {
+            const { GoogleGenAI } = await import("@google/genai");
+            this.client = new GoogleGenAI({ apiKey: this.apiKey });
+        }
+        return this.client;
+    }
+
     async chat(params: ChatParams): Promise<ChatResult> {
+        const client = await this.getClient();
         const contents: Record<string, unknown>[] = [];
 
         // 1. History
@@ -58,7 +68,7 @@ export class GeminiProvider implements AIProvider {
             }];
         }
 
-        const response = await this.client.models.generateContent({
+        const response = await client.models.generateContent({
             model: this.model,
             contents: contents as any[], // Package requires specific internal type cast here occasionally but `any` is restricted by ESLint. Wait to see if package accepts Record<string,unknown>.
             config: {
@@ -82,9 +92,8 @@ export class GeminiProvider implements AIProvider {
             }));
         }
 
-        return {
+        const result: ChatResult = {
             content: text,
-            toolCalls,
             usage: {
                 promptTokens: usage?.promptTokenCount ?? 0,
                 completionTokens: usage?.candidatesTokenCount ?? 0,
@@ -92,10 +101,15 @@ export class GeminiProvider implements AIProvider {
             },
             model: this.model,
         };
+        
+        if (toolCalls && toolCalls.length > 0) result.toolCalls = toolCalls;
+
+        return result;
     }
 
     async embed(text: string, userId?: string): Promise<EmbedResult> {
-        const response = await this.client.models.embedContent({
+        const client = await this.getClient();
+        const response = await client.models.embedContent({
             model: "text-embedding-004",
             contents: text,
             config: {

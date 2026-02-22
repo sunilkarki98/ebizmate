@@ -114,7 +114,7 @@ export default async function WebhooksPage() {
                                         <TableCell colSpan={6} className="h-24 text-center">No connections configured.</TableCell>
                                     </TableRow>
                                 ) : (
-                                    connections.map((conn) => (
+                                    connections.map((conn: any) => (
                                         <TableRow key={conn.id}>
                                             <TableCell className="font-medium">{conn.name}</TableCell>
                                             <TableCell>

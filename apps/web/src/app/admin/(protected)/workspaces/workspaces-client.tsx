@@ -139,7 +139,7 @@ export function WorkspacesClient({ initialWorkspaces }: { initialWorkspaces: any
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {workspaces.map((ws) => {
+                                {workspaces.map((ws: any) => {
                                     const isTrialActive = ws.plan === "free" && ws.trialEndsAt && new Date(ws.trialEndsAt) > new Date();
                                     const limit = ws.customUsageLimit || (ws.plan === "paid" ? 1000000 : 10000);
                                     const usagePercent = ws.currentMonthUsage ? Math.min(100, (ws.currentMonthUsage / limit) * 100) : 0;

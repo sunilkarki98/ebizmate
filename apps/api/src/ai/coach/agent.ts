@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "@ebizmate/db";
-import { workspaces, items } from "@ebizmate/db";
+import { workspaces, items, coachConversations } from "@ebizmate/db";
 import { eq, and, ilike, cosineDistance, sql, gt } from "drizzle-orm";
 import { getAIService } from "../services/factory";
 import { COACH_SYSTEM_PROMPT } from "./prompts";
@@ -81,7 +81,7 @@ export async function processCoachMessage(
     }
 
     // 3️⃣ Build system prompt
-    const settingsObj = (workspace.settings as Record<string, any>) || {};
+    const settingsObj = workspace.settings || {};
     const systemPrompt = COACH_SYSTEM_PROMPT(
         workspace.businessName || workspace.name || "Unknown Business",
         workspace.industry || "Unknown",
@@ -105,24 +105,8 @@ export async function processCoachMessage(
         temperature: 0.2
     }, undefined, "coach_chat");
 
-    // 🛡️ Filter and Extract inline XML <function> tags that Llama/Mixtral models sometimes leak into the chat text instead of using native tool arrays
-    const xmlToolRegex = /<function\((.*?)\)>(.*?)<\/function>/g;
-    let match;
     result.toolCalls = result.toolCalls || [];
-
-    while ((match = xmlToolRegex.exec(result.content)) !== null) {
-        const toolName = match[1];
-        let toolArgs;
-        try {
-            toolArgs = JSON.parse(match[2].trim());
-            result.toolCalls.push({ id: `inline-${Date.now()}`, name: toolName, arguments: toolArgs });
-        } catch (e) {
-            console.warn("Failed to parse inline XML tool JSON:", match[2]);
-        }
-    }
-
-    // Clean the reply for the UI
-    let reply = result.content.replace(/<function[^>]*>[\s\S]*?<\/function>/gi, "").trim();
+    let reply = result.content.trim();
 
     // 6️⃣ Execute tool calls
     if (result.toolCalls && result.toolCalls.length) {
@@ -188,7 +172,7 @@ export async function processCoachMessage(
 
                 const configData = parsed.data;
                 const updates: Record<string, unknown> = {};
-                const currentSettings = (workspace.settings as Record<string, unknown>) || {};
+                const currentSettings = workspace.settings || {};
                 let settingsUpdated = false;
 
                 if (configData.ai_active !== undefined) { currentSettings.ai_active = configData.ai_active; settingsUpdated = true; }
@@ -208,5 +192,13 @@ export async function processCoachMessage(
         }
     }
 
-    return reply || "Done!";
+    const finalReply = reply || "Done!";
+
+    // Save conversation to DB
+    await db.insert(coachConversations).values([
+        { workspaceId, role: "user", content: userMessage },
+        { workspaceId, role: "coach", content: finalReply }
+    ]);
+
+    return finalReply;
 }

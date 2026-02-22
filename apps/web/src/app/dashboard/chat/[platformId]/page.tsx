@@ -58,7 +58,7 @@ export default async function ChatPage({ params }: { params: Promise<{ platformI
                                 <p>No message history found.</p>
                             </div>
                         ) : (
-                            messages.map((msg) => (
+                            messages.map((msg: any) => (
                                 <div key={msg.id} className="space-y-4">
                                     {/* User Message (Left) */}
                                     <div className="flex gap-3 justify-start max-w-[85%]">

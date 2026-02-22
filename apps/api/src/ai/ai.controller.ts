@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Req, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Req, Param, HttpException, HttpStatus } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
@@ -9,6 +9,7 @@ import {
     CoachChatDto,
     IngestPostDto,
     BatchIngestDto,
+    TeachReplyDto,
 } from './dto';
 
 @Controller('ai')
@@ -76,6 +77,84 @@ export class AiController {
         }
     }
 
+    @Get('coach/history')
+    async getCoachHistory(@Req() req: AuthenticatedRequest) {
+        try {
+            return await this.aiService.getCoachHistory(req.user.userId);
+        } catch (error) {
+            throw new HttpException(
+                error instanceof Error ? error.message : 'Internal Server Error',
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
+
+    @Get('customer/interactions')
+    async getCustomerInteractions(@Req() req: AuthenticatedRequest) {
+        try {
+            return await this.aiService.getCustomerInteractions(req.user.userId);
+        } catch (error) {
+            throw new HttpException(
+                error instanceof Error ? error.message : 'Internal Server Error',
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
+
+    @Get('customer/all')
+    async getCustomers(@Req() req: AuthenticatedRequest) {
+        try {
+            return await this.aiService.getCustomers(req.user.userId);
+        } catch (error) {
+            throw new HttpException(
+                error instanceof Error ? error.message : 'Internal Server Error',
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
+
+    @Get('customer/:id')
+    async getCustomer(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+        try {
+            return await this.aiService.getCustomer(req.user.userId, id);
+        } catch (error) {
+            throw new HttpException(
+                error instanceof Error ? error.message : 'Internal Server Error',
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
+
+    @Post('customer/:id/pause')
+    async pauseCustomerAi(
+        @Req() req: AuthenticatedRequest,
+        @Param('id') id: string
+    ) {
+        try {
+            return await this.aiService.setCustomerAiStatus(req.user.userId, id, true);
+        } catch (error) {
+            throw new HttpException(
+                error instanceof Error ? error.message : 'Internal Server Error',
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
+
+    @Post('customer/:id/resume')
+    async resumeCustomerAi(
+        @Req() req: AuthenticatedRequest,
+        @Param('id') id: string
+    ) {
+        try {
+            return await this.aiService.setCustomerAiStatus(req.user.userId, id, false);
+        } catch (error) {
+            throw new HttpException(
+                error instanceof Error ? error.message : 'Internal Server Error',
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
+
     @Post('ingest')
     async ingestPostData(
         @Req() req: AuthenticatedRequest,
@@ -110,6 +189,21 @@ export class AiController {
     async testProviderConnection(@Req() req: AuthenticatedRequest) {
         try {
             return await this.aiService.testConnection();
+        } catch (error) {
+            throw new HttpException(
+                error instanceof Error ? error.message : 'Internal Server Error',
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
+
+    @Post('teach-reply')
+    async teachAndReply(
+        @Req() req: AuthenticatedRequest,
+        @Body() dto: TeachReplyDto,
+    ) {
+        try {
+            return await this.aiService.teachAndReply(req.user.userId, dto);
         } catch (error) {
             throw new HttpException(
                 error instanceof Error ? error.message : 'Internal Server Error',

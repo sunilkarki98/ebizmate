@@ -2,13 +2,19 @@
   "name": "ebizmate-monorepo",
   "private": true,
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev",
+    "build": "NODE_OPTIONS='--max-old-space-size=1024' dotenv -e .env -- turbo run build --concurrency=1",
+    "build:parallel": "dotenv -e .env -- turbo run build",
+    "dev": "dotenv -e .env -- turbo run dev",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "check-types": "turbo run check-types"
+    "check-types": "dotenv -e .env -- turbo run check-types",
+    "db:push": "npm run db:push --workspace=@ebizmate/db",
+    "db:generate": "npm run db:generate --workspace=@ebizmate/db",
+    "db:migrate": "npm run db:migrate --workspace=@ebizmate/db",
+    "db:studio": "npm run db:studio --workspace=@ebizmate/db"
   },
   "devDependencies": {
+    "dotenv-cli": "^11.0.0",
     "prettier": "^3.7.4",
     "turbo": "^2.8.10",
     "typescript": "5.9.2"

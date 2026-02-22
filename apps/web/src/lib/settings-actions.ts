@@ -1,9 +1,6 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { db } from "@ebizmate/db";
-import { workspaces, aiSettings } from "@ebizmate/db";
-import { eq } from "drizzle-orm";
+import { auth, getBackendToken } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -22,18 +19,9 @@ const aiSchema = z.object({
     groqApiKey: z.string().optional(),
 });
 
-import { encrypt } from "@/lib/crypto";
-
 export async function updateWorkspaceAISettingsAction(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) return { error: "Unauthorized" };
-
-    const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.userId, session.user.id),
-        with: { aiSettings: true }
-    });
-
-    if (!workspace) return { error: "Workspace not found" };
 
     const parsed = aiSchema.safeParse({
         coachProvider: formData.get("coachProvider"),
@@ -48,28 +36,25 @@ export async function updateWorkspaceAISettingsAction(formData: FormData) {
         return { error: parsed.error.issues[0].message };
     }
 
-    const updates: Record<string, any> = {};
-    if (parsed.data.coachProvider) updates.coachProvider = parsed.data.coachProvider;
-    if (parsed.data.customerProvider) updates.customerProvider = parsed.data.customerProvider;
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
 
-    // Encrypt provided keys
-    if (parsed.data.openaiApiKey) updates.openaiApiKey = encrypt(parsed.data.openaiApiKey);
-    if (parsed.data.geminiApiKey) updates.geminiApiKey = encrypt(parsed.data.geminiApiKey); // We now encrypt all keys for user safety
-    if (parsed.data.openrouterApiKey) updates.openrouterApiKey = encrypt(parsed.data.openrouterApiKey);
-    if (parsed.data.groqApiKey) updates.groqApiKey = encrypt(parsed.data.groqApiKey);
+    try {
+        const response = await fetch(`${backendUrl}/settings/ai`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${backendToken}`
+            },
+            body: JSON.stringify(parsed.data)
+        });
 
-    if (Object.keys(updates).length > 0) {
-        if (workspace.aiSettings) {
-            await db.update(aiSettings)
-                .set({ ...updates, updatedAt: new Date() })
-                .where(eq(aiSettings.workspaceId, workspace.id));
-        } else {
-            await db.insert(aiSettings)
-                .values({
-                    workspaceId: workspace.id,
-                    ...updates
-                });
+        if (!response.ok) {
+            const error = await response.json();
+            return { error: error.message || "Failed to update AI settings" };
         }
+    } catch (e: any) {
+        return { error: e.message || "Failed to connect to API" };
     }
 
     revalidatePath("/dashboard/settings");
@@ -79,12 +64,6 @@ export async function updateWorkspaceAISettingsAction(formData: FormData) {
 export async function updateIdentityAction(formData: FormData) {
     const session = await auth();
     if (!session?.user?.id) return { error: "Unauthorized" };
-
-    const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.userId, session.user.id),
-    });
-
-    if (!workspace) return { error: "Workspace not found" };
 
     const parsed = identitySchema.safeParse({
         workspaceName: formData.get("workspaceName"),
@@ -96,16 +75,26 @@ export async function updateIdentityAction(formData: FormData) {
         return { error: parsed.error.issues[0].message };
     }
 
-    const { workspaceName, platform, platformHandle } = parsed.data;
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
 
-    await db.update(workspaces)
-        .set({
-            name: workspaceName,
-            platform,
-            platformHandle: platformHandle || null,
-            updatedAt: new Date(),
-        })
-        .where(eq(workspaces.id, workspace.id));
+    try {
+        const response = await fetch(`${backendUrl}/settings/identity`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${backendToken}`
+            },
+            body: JSON.stringify(parsed.data)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            return { error: error.message || "Failed to update identity" };
+        }
+    } catch (e: any) {
+        return { error: e.message || "Failed to connect to API" };
+    }
 
     revalidatePath("/dashboard");
     return { success: true };

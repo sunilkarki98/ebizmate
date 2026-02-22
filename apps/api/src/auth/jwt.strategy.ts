@@ -23,8 +23,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
                     if (decoded.app_metadata || (decoded.iss && decoded.iss.includes('supabase'))) {
                         done(null, this.configService.get<string>('SUPABASE_JWT_SECRET'));
                     } else {
-                        // Default to NextAuth
-                        done(null, this.configService.get<string>('NEXTAUTH_SECRET') || 'fallback-secret');
+                        // Default to NextAuth - throw if not configured
+                        const nextAuthSecret = this.configService.get<string>('NEXTAUTH_SECRET');
+                        if (!nextAuthSecret) {
+                            throw new Error('NEXTAUTH_SECRET environment variable is required for JWT authentication');
+                        }
+                        done(null, nextAuthSecret);
                     }
                 } catch (e) {
                     done(e, null);
@@ -42,7 +46,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         const userId = payload.sub || payload.id;
         const role = payload.app_metadata?.role || payload.role || 'user';
         const email = payload.email || null;
+        const name = payload.name || payload.user_metadata?.full_name || null;
 
-        return { userId, role, email };
+        return { id: userId, sub: userId, userId, role, email, name };
     }
 }

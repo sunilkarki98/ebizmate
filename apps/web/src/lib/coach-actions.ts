@@ -1,11 +1,6 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { db } from "@ebizmate/db";
-import { workspaces, coachConversations } from "@ebizmate/db";
-import { eq, desc } from "drizzle-orm";
-
-
+import { auth, getBackendToken } from "@/lib/auth";
 
 type CoachResponse =
     | { success: true; reply: string }
@@ -39,53 +34,30 @@ function formatCoachError(error: any): string {
 
 // --- Fetch previous conversation history ---
 export async function getCoachHistoryAction() {
-    const session = await auth();
-    if (!session?.user?.id) throw new Error("Unauthorized");
+    const backendToken = await getBackendToken();
+    if (!backendToken) return [];
 
-    const userWorkspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.userId, session.user.id)
-    });
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
-    if (!userWorkspace) return [];
-
-    // Load last 50 messages to match agent memory depth
-    const messages = await db.query.coachConversations.findMany({
-        where: eq(coachConversations.workspaceId, userWorkspace.id),
-        orderBy: [desc(coachConversations.createdAt)],
-        limit: 50,
-    });
-
-    // DB returns newest first because of desc(), we want oldest first for UI
-    return messages.reverse().map(m => ({
-        id: m.id,
-        role: m.role as "user" | "coach",
-        content: m.content,
-        createdAt: m.createdAt?.getTime() || Date.now()
-    }));
+    try {
+        const response = await fetch(`${backendUrl}/ai/coach/history`, {
+            headers: {
+                "Authorization": `Bearer ${backendToken}`
+            }
+        });
+        if (!response.ok) return [];
+        return await response.json();
+    } catch (e) {
+        return [];
+    }
 }
 
 export async function interactWithCoach(message: string, history: Array<{ role: "user" | "coach"; content: string }>): Promise<CoachResponse> {
-    const session = await auth();
-    if (!session?.user?.id) throw new Error("Unauthorized");
-
-    const userWorkspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.userId, session.user.id)
-    });
-
-    if (!userWorkspace) throw new Error("No workspace found");
+    const backendToken = await getBackendToken();
+    if (!backendToken) throw new Error("Failed to authenticate with backend API");
 
     try {
-        // 1. Save user message immediately
-        try {
-            await db.insert(coachConversations).values({
-                workspaceId: userWorkspace.id,
-                role: "user",
-                content: message
-            });
-        } catch (dbError) {
-            console.error("Failed to save user message to DB:", dbError);
-            return { success: false, error: "Database error: Could not save your message. Please try again." };
-        }
+        // Removed frontend DB insert - logic moved to backend API
 
         // 2. Process with AI via NestJS
         let reply = "";
@@ -95,7 +67,7 @@ export async function interactWithCoach(message: string, history: Array<{ role: 
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
-                    "Authorization": `Bearer system_token_${userWorkspace.id}`
+                    "Authorization": `Bearer ${backendToken}`
                 },
                 body: JSON.stringify({ message, history })
             });
@@ -112,18 +84,7 @@ export async function interactWithCoach(message: string, history: Array<{ role: 
             throw error; // Let the outer catch handle formatting
         }
 
-        // 3. Save Coach reply
-        try {
-            await db.insert(coachConversations).values({
-                workspaceId: userWorkspace.id,
-                role: "coach",
-                content: reply
-            });
-        } catch (dbError) {
-            console.error("Failed to save coach reply to DB:", dbError);
-            // We still return success: true because the AI generated a reply, 
-            // but it won't be in the history next time.
-        }
+        // Removed frontend DB insert - logic moved to backend API
 
         // NOTE: Do NOT call revalidatePath here.
         // The coach client manages its own message state.

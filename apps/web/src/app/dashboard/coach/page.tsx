@@ -1,19 +1,13 @@
-
-import { auth } from "@/lib/auth";
+import { auth, getBackendToken } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { db } from "@ebizmate/db";
-import { workspaces, coachConversations } from "@ebizmate/db";
-import { eq, desc } from "drizzle-orm";
 import CoachClient from "./coach-client";
 
 export default async function CoachPage() {
     const session = await auth();
     if (!session?.user?.id) redirect("/signin");
 
-    // Fetch workspace
-    const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.userId, session.user.id),
-    });
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
 
     // Default intro message
     const defaultMessages = [
@@ -24,23 +18,23 @@ export default async function CoachPage() {
         },
     ];
 
-    if (!workspace) {
+    // Fetch workspace info just in case we need it to know if they hold any setup
+    const wsRes = await fetch(`${backendUrl}/settings/workspace`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
+    });
+
+    if (!wsRes.ok) {
         return <CoachClient initialMessages={defaultMessages} />;
     }
 
-    // Fetch last 50 messages from DB
-    const dbMessages = await db.query.coachConversations.findMany({
-        where: eq(coachConversations.workspaceId, workspace.id),
-        orderBy: [desc(coachConversations.createdAt)],
-        limit: 50,
+    // Fetch History
+    const historyRes = await fetch(`${backendUrl}/ai/coach/history`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
     });
 
-    // DB returns newest first, we want oldest first for UI
-    const formattedMessages = dbMessages.reverse().map((m) => ({
-        id: m.createdAt?.getTime().toString() || Date.now().toString(),
-        role: m.role as "user" | "coach",
-        content: m.content,
-    }));
+    const formattedMessages = historyRes.ok ? await historyRes.json() : [];
 
     const initialMessages = formattedMessages.length > 0 ? formattedMessages : defaultMessages;
 

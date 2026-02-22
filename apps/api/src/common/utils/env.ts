@@ -37,6 +37,6 @@ export function getEnv(): Env {
 
 // Validate env at module load time — fail fast at startup, not at runtime.
 // Skip during build phase (process.env vars may not be fully available).
-if (typeof window === "undefined" && process.env.DATABASE_URL) {
+if (typeof globalThis !== "undefined" && !("window" in globalThis) && process.env["DATABASE_URL"]) {
     getEnv();
 }

@@ -1,0 +1,1 @@
+{"version":3,"file":"coach-chat.dto.d.ts","sourceRoot":"","sources":["../../../src/ai/dto/coach-chat.dto.ts"],"names":[],"mappings":"AAGA,cAAM,oBAAoB;IAEtB,IAAI,EAAE,MAAM,GAAG,OAAO,CAAC;IAIvB,OAAO,EAAE,MAAM,CAAC;CACnB;AAED,qBAAa,YAAY;IAGrB,OAAO,EAAE,MAAM,CAAC;IAKhB,OAAO,EAAE,oBAAoB,EAAE,CAAC;CACnC"}

@@ -27,19 +27,6 @@ export const webhookBodySchema = z.object({
     caption: z.string().max(5000).optional(),
 }).passthrough(); // Allow extra fields for platform-specific data
 
-// --- Utility: Sanitize ILIKE input ---
-
-/**
- * Escapes special characters in a string for use in PostgreSQL ILIKE patterns.
- * Prevents SQL injection via wildcard characters.
- */
-export function sanitizeLikeInput(input: string): string {
-    return input
-        .replace(/\\/g, "\\\\") // Escape backslash first
-        .replace(/%/g, "\\%")   // Escape percent
-        .replace(/_/g, "\\_");  // Escape underscore
-}
-
 // --- AI Settings Schema ---
 
 export const aiSettingsSchema = z.object({

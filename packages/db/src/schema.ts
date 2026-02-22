@@ -1,5 +1,5 @@
 
-import { pgTable, text, timestamp, json, integer, uniqueIndex, index, boolean, vector } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, json, integer, uniqueIndex, index, boolean, vector, real } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
 // --- Auth (Standard NextAuth/Auth.js) ---
@@ -10,7 +10,7 @@ export const users = pgTable("users", {
     emailVerified: timestamp("emailVerified", { mode: "date" }),
     image: text("image"),
     password: text("password"),
-    role: text("role").notNull().default("user"), // "admin" | "user"
+    role: text("role", { enum: ["admin", "user"] }).notNull().default("user"),
     createdAt: timestamp("createdAt").defaultNow(),
     updatedAt: timestamp("updatedAt").defaultNow(),
 });
@@ -18,6 +18,7 @@ export const users = pgTable("users", {
 export const accounts = pgTable(
     "accounts",
     {
+        id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
         userId: text("userId")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
@@ -71,7 +72,7 @@ export const workspaces = pgTable("workspaces", {
     platform: text("platform").default("generic"), // tiktok, instagram, etc.
     platformId: text("platformId"), // The external ID (e.g., TikTok User ID)
     platformHandle: text("platformHandle"), // The external handle (e.g., @username)
-    accessToken: text("accessToken"),
+    accessToken: text("accessToken"), // ⚠️ MUST be encrypted via encrypt() before storage
 
     // Business Profile
     businessName: text("businessName"),
@@ -80,14 +81,14 @@ export const workspaces = pgTable("workspaces", {
     targetAudience: text("targetAudience"), // "Young professionals..."
     toneOfVoice: text("toneOfVoice"), // "Friendly but professional"
 
-    settings: json("settings"), // AI tone, language, response rules
+    settings: json("settings").$type<{ ai_active?: boolean; language?: string; systemPromptTemplate?: string }>(),
 
     // Admin Controls
     allowGlobalAi: boolean("allowGlobalAi").default(true), // If false, user must provide their own key
 
     // Plan & Usage Limits
-    plan: text("plan").default("free"), // free | paid
-    status: text("status").default("active"), // active | suspended | past_due
+    plan: text("plan", { enum: ["free", "paid"] }).default("free"),
+    status: text("status", { enum: ["active", "suspended", "past_due"] }).default("active"),
     trialEndsAt: timestamp("trialEndsAt").defaultNow(), // Defaults to creation time, logic will add 7 days
     customUsageLimit: integer("customUsageLimit"), // Null = use plan default. 50000 etc.
 
@@ -96,6 +97,7 @@ export const workspaces = pgTable("workspaces", {
 }, (table) => {
     return {
         userIdx: index("workspaces_user_idx").on(table.userId),
+        platformIdx: index("workspaces_platform_idx").on(table.platformId),
     };
 });
 
@@ -117,6 +119,7 @@ export const items = pgTable("items", {
 
     // Vector embedding for semantic search (768 dims — native for Gemini, configurable for OpenAI)
     embedding: vector("embedding", { dimensions: 768 }),
+    embeddingModel: text("embeddingModel"), // Track which model generated the embedding
 
     createdAt: timestamp("createdAt").defaultNow(),
     updatedAt: timestamp("updatedAt").defaultNow(),
@@ -144,6 +147,10 @@ export const posts = pgTable("posts", {
 
     createdAt: timestamp("createdAt").defaultNow(),
     updatedAt: timestamp("updatedAt").defaultNow(),
+}, (table) => {
+    return {
+        workspaceIdx: index("posts_workspaceId_idx").on(table.workspaceId),
+    };
 });
 
 // "Interactions" track the incoming events and outgoing replies
@@ -161,15 +168,17 @@ export const interactions = pgTable("interactions", {
 
     authorId: text("authorId"), // Who commented
     authorName: text("authorName"),
+    customerId: text("customerId"), // FK link to customers table
 
     content: text("content").notNull(), // The user's text
 
     response: text("response"), // What the bot replied
-    status: text("status").default("PENDING"), // PENDING, PROCESSED, IGNORED, FAILED
+    status: text("status", { enum: ["PENDING", "PROCESSED", "IGNORED", "FAILED", "NEEDS_REVIEW", "ACTION_REQUIRED", "RESOLVED"] }).default("PENDING"),
 
     meta: json("meta"), // Structured metadata (e.g., escalation references, state machine context)
 
     createdAt: timestamp("createdAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow(),
 }, (table) => {
     return {
         // Compound index for fast conversation history retrieval
@@ -178,6 +187,8 @@ export const interactions = pgTable("interactions", {
         externalIdx: uniqueIndex("interactions_external_idx").on(table.workspaceId, table.externalId),
         // Index for dashboard status queries
         statusIdx: index("interactions_status_idx").on(table.workspaceId, table.status),
+        // Index for customer lookups
+        customerIdx: index("interactions_customer_idx").on(table.customerId),
     };
 });
 
@@ -246,9 +257,9 @@ export const aiSettings = pgTable("ai_settings", {
     groqModel: text("groqModel").default("llama-3.3-70b-versatile"),
 
     // Shared Parameters
-    temperature: text("temperature").default("0.7"), // Stored as text to avoid float precision issues
+    temperature: real("temperature").default(0.7),
     maxTokens: integer("maxTokens").default(1024),
-    topP: text("topP").default("1.0"),
+    topP: real("topP").default(1.0),
 
     // Custom system prompt template (optional override)
     systemPromptTemplate: text("systemPromptTemplate"),
@@ -273,7 +284,7 @@ export const aiUsageLog = pgTable("ai_usage_log", {
 
     provider: text("provider").notNull(), // openai | gemini
     model: text("model").notNull(),
-    operation: text("operation").notNull(), // chat | embedding
+    operation: text("operation", { enum: ["chat", "embedding", "coach_chat"] }).notNull(),
 
     inputTokens: integer("inputTokens").default(0),
     outputTokens: integer("outputTokens").default(0),
@@ -298,10 +309,12 @@ export const feedbackQueue = pgTable("feedback_queue", {
     interactionId: text("interactionId").references(() => interactions.id, { onDelete: "set null" }),
     content: text("content").notNull(),
     itemsContext: text("itemsContext"),
-    status: text("status").default("PENDING"),
+    status: text("status", { enum: ["PENDING", "PROCESSED", "DISMISSED"] }).default("PENDING"),
     createdAt: timestamp("createdAt").defaultNow(),
     updatedAt: timestamp("updatedAt").defaultNow(),
-});
+}, (table) => ({
+    workspaceStatusIdx: index("feedback_queue_workspace_status_idx").on(table.workspaceId, table.status),
+}));
 
 // --- Audit Logs ---
 export const auditLogs = pgTable("audit_logs", {
@@ -330,7 +343,9 @@ export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
         references: [users.id],
     }),
     items: many(items),
+    posts: many(posts),
     interactions: many(interactions),
+    customers: many(customers),
     aiSettings: one(aiSettings),
 }));
 
@@ -357,6 +372,10 @@ export const interactionsRelations = relations(interactions, ({ one }) => ({
     post: one(posts, {
         fields: [interactions.postId],
         references: [posts.id],
+    }),
+    customer: one(customers, {
+        fields: [interactions.customerId],
+        references: [customers.id],
     }),
 }));
 
@@ -401,10 +420,12 @@ export const coachConversations = pgTable("coachConversations", {
         .references(() => workspaces.id, { onDelete: "cascade" }),
     role: text("role", { enum: ["user", "coach"] }).notNull(),
     content: text("content").notNull(),
+    sessionId: text("sessionId"), // Group conversation turns into sessions
     createdAt: timestamp("createdAt").defaultNow(),
 }, (table) => {
     return {
         workspaceIdx: index("coachConversations_workspaceId_idx").on(table.workspaceId),
+        sessionIdx: index("coachConversations_session_idx").on(table.sessionId),
     };
 });
 

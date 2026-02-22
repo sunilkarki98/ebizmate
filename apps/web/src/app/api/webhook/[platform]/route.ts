@@ -1,10 +1,6 @@
 
 import { headers } from "next/headers";
 import { NextResponse, after } from "next/server";
-import { db } from "@ebizmate/db";
-import { interactions, workspaces, posts, customers } from "@ebizmate/db";
-import { eq, and } from "drizzle-orm";
-
 import { webhookBodySchema } from "@/lib/validation";
 import crypto from "crypto";
 
@@ -46,8 +42,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ platfor
     const rawBody = await req.text();
     const { platform } = await params;
 
-    // 1. Signature Verification
+    // 1. Signature Verification (mandatory in production)
     const webhookSecret = process.env.WEBHOOK_SECRET;
+    if (!webhookSecret && process.env.NODE_ENV === "production") {
+        console.error("WEBHOOK_SECRET is not set — rejecting all webhooks in production");
+        return NextResponse.json({ error: "Server misconfiguration" }, { status: 500 });
+    }
     if (webhookSecret) {
         const headersList = await headers();
         const signature =
@@ -79,130 +79,31 @@ export async function POST(req: Request, { params }: { params: Promise<{ platfor
 
     console.log(`Received ${platform} webhook:`, validatedBody.type || "unknown");
 
-    // 3. Identify Workspace
-    const platformUserId = validatedBody.userId || validatedBody.sec_uid || validatedBody.authorId;
-    if (!platformUserId) {
-        return NextResponse.json({ error: "Missing user ID in webhook" }, { status: 400 });
-    }
+    // Push the validated payload securely to the NestJS API
+    after(async () => {
+        try {
+            const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+            const internalSecret = process.env.INTERNAL_API_SECRET;
+            if (!internalSecret) {
+                console.error("INTERNAL_API_SECRET is not set — cannot forward webhook to backend");
+                return;
+            }
+            const response = await fetch(`${backendUrl}/webhook/internal/${platform}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${internalSecret}`
+                },
+                body: JSON.stringify(validatedBody)
+            });
 
-    const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.platformId, platformUserId),
+            if (!response.ok) {
+                console.error(`NestJS webhook processing failed for ${platform}:`, await response.text());
+            }
+        } catch (err) {
+            console.error(`Failed to push webhook to backend for ${platform}:`, err);
+        }
     });
 
-    if (!workspace) {
-        return NextResponse.json({ error: "Workspace not found" }, { status: 200 });
-    }
-
-    // 4. Handle Event Types
-    const eventType = validatedBody.type;
-
-    if (eventType === "video.publish" || eventType === "post.create" || eventType === "media.create") {
-        // --- Proactive Indexing ---
-        const videoId = validatedBody.video_id || validatedBody.item_id || validatedBody.post_id;
-        const caption = validatedBody.description || validatedBody.caption || validatedBody.text || "";
-
-        if (videoId) {
-            await db.insert(posts).values({
-                workspaceId: workspace.id,
-                platformId: videoId,
-                content: caption,
-                meta: validatedBody,
-            }).onConflictDoUpdate({
-                target: posts.platformId,
-                set: { content: caption, updatedAt: new Date() }
-            });
-            console.log(`Indexed content: ${videoId}`);
-        }
-        return NextResponse.json({ success: true, type: "content_indexed" });
-
-    } else if (eventType === "comment.create" || eventType === "message.create") {
-        // --- Interaction Handling ---
-
-        // Find parent post context — FIXED: scoped to workspace
-        const parentId = validatedBody.video_id || validatedBody.post_id;
-        let localPostId = null;
-
-        if (parentId) {
-            const parentPost = await db.query.posts.findFirst({
-                where: and(
-                    eq(posts.platformId, parentId),
-                    eq(posts.workspaceId, workspace.id) // Tenant isolation fix
-                ),
-            });
-            if (parentPost) {
-                localPostId = parentPost.id;
-            }
-        }
-
-        // --- CRM Data Capture ---
-        if (validatedBody.userId) {
-            await db.insert(customers).values({
-                workspaceId: workspace.id,
-                platformId: validatedBody.userId,
-                platformHandle: validatedBody.userName || "unknown",
-                name: validatedBody.userName || "unknown",
-                lastInteractionAt: new Date(),
-            }).onConflictDoUpdate({
-                target: [customers.workspaceId, customers.platformId],
-                set: {
-                    platformHandle: validatedBody.userName || undefined,
-                    lastInteractionAt: new Date(),
-                }
-            });
-        }
-
-        const externalId = validatedBody.commentId || validatedBody.messageId || `evt-${Date.now()}`;
-
-        // Idempotent insert — skip duplicates via unique constraint
-        const result = await db
-            .insert(interactions)
-            .values({
-                workspaceId: workspace.id,
-                postId: localPostId,
-                sourceId: parentId || "unknown",
-                externalId,
-                authorId: validatedBody.userId || "anonymous",
-                authorName: validatedBody.userName || "User",
-                content: validatedBody.text || validatedBody.message || "",
-                status: "PENDING",
-            })
-            .onConflictDoNothing({
-                target: [interactions.workspaceId, interactions.externalId],
-            })
-            .returning();
-
-        if (result.length === 0) {
-            // Duplicate event — already processed
-            console.log(`Duplicate webhook event skipped: ${externalId}`);
-            return NextResponse.json({ success: true, duplicate: true });
-        }
-
-        const [interaction] = result;
-
-        // Reliable async AI processing — pushes to NestJS queue
-        after(async () => {
-            try {
-                const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-                const response = await fetch(`${backendUrl}/ai/process`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer system_token_${workspace.id}` // In production, use a signed server-to-server JWT 
-                    },
-                    body: JSON.stringify({ interactionId: interaction.id })
-                });
-
-                if (!response.ok) {
-                    console.error(`NestJS queue failed for interaction ${interaction.id}`, await response.text());
-                }
-            } catch (err) {
-                console.error(`Failed to push interaction ${interaction.id} to backend:`, err);
-            }
-        });
-
-        return NextResponse.json({ success: true, interactionId: interaction.id });
-    }
-
-    // Unknown event type — acknowledge but don't process
-    return NextResponse.json({ received: true, type: eventType || "unknown" });
+    return NextResponse.json({ success: true, type: validatedBody.type || "unknown" });
 }

@@ -1,11 +1,9 @@
 
 "use server";
 
-import { db } from "@ebizmate/db";
-import { workspaces } from "@ebizmate/db";
-import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getWorkspace } from "@/lib/item-actions";
+import { getBackendToken } from "@/lib/auth";
 
 export async function updateProfile(data: {
     businessName: string;
@@ -17,17 +15,29 @@ export async function updateProfile(data: {
     const workspace = await getWorkspace();
     if (!workspace) throw new Error("Unauthorized");
 
-    await db.update(workspaces)
-        .set({
-            businessName: data.businessName,
-            industry: data.industry,
-            about: data.about,
-            targetAudience: data.targetAudience,
-            toneOfVoice: data.toneOfVoice,
-            updatedAt: new Date(),
-        })
-        .where(eq(workspaces.id, workspace.id));
+    const backendToken = await getBackendToken();
+    if (!backendToken) throw new Error("Unauthorized");
 
-    revalidatePath("/dashboard/profile");
-    return { success: true };
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
+    try {
+        const response = await fetch(`${backendUrl}/settings/profile`, {
+            method: "PUT",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${backendToken}`
+            },
+            body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || "Failed to update profile");
+        }
+
+        revalidatePath("/dashboard/profile");
+        return { success: true };
+    } catch (error: any) {
+        throw new Error(error.message || "Failed to update profile");
+    }
 }

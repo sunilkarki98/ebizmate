@@ -1,6 +1,21 @@
 {
     "name": "@ebizmate/shared",
     "version": "1.0.0",
-    "main": "src/index.ts",
-    "types": "src/index.ts"
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs"
+        }
+    },
+    "scripts": {
+        "build": "tsc"
+    },
+    "dependencies": {
+        "@ebizmate/db": "^1.0.0",
+        "drizzle-orm": "^0.45.1"
+    }
 }

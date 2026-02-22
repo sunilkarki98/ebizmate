@@ -15,6 +15,13 @@
       "when": 1771581924390,
       "tag": "0001_giant_leper_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1771650977894,
+      "tag": "0002_reflective_leopardon",
+      "breakpoints": true
     }
   ]
 }

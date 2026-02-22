@@ -78,7 +78,7 @@ export default async function AnalyticsPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {data.providerBreakdown.map((row, i) => (
+                                    {data.providerBreakdown.map((row: any, i: number) => (
                                         <TableRow key={i}>
                                             <TableCell>
                                                 <Badge variant="outline">{row.provider}</Badge>
@@ -123,7 +123,7 @@ export default async function AnalyticsPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {data.dailyUsage.map((row, i) => (
+                                    {data.dailyUsage.map((row: any, i: number) => (
                                         <TableRow key={i}>
                                             <TableCell className="font-mono text-sm">{row.date}</TableCell>
                                             <TableCell><Badge variant="outline">{row.provider}</Badge></TableCell>
@@ -163,7 +163,7 @@ export default async function AnalyticsPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {data.topWorkspaces.map((ws, i) => (
+                                    {data.topWorkspaces.map((ws: any, i: number) => (
                                         <TableRow key={i}>
                                             <TableCell className="font-medium">{ws.workspaceName || ws.workspaceId}</TableCell>
                                             <TableCell className="text-right">{ws.totalCalls.toLocaleString()}</TableCell>

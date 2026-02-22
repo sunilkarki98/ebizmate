@@ -1,8 +1,5 @@
 
-import { auth } from "@/lib/auth";
-import { db } from "@ebizmate/db";
-import { customers, workspaces } from "@ebizmate/db";
-import { eq, desc } from "drizzle-orm";
+import { auth, getBackendToken } from "@/lib/auth";
 import {
     Table,
     TableBody,
@@ -18,17 +15,25 @@ export default async function CustomersPage() {
     const session = await auth();
     if (!session?.user?.id) return null;
 
-    const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.userId, session.user.id),
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
+
+    // 1. Fetch Workspace (for platform logo context)
+    const wsRes = await fetch(`${backendUrl}/settings/workspace`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
+    });
+    if (!wsRes.ok) return null;
+    const workspace = await wsRes.json();
+
+    // 2. Fetch Customers
+    const custRes = await fetch(`${backendUrl}/ai/customer/all`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
     });
 
-    if (!workspace) return null;
-
-    const customerList = await db.query.customers.findMany({
-        where: eq(customers.workspaceId, workspace.id),
-        orderBy: desc(customers.lastInteractionAt),
-        limit: 50,
-    });
+    // Default to empty array if API fails or has no customers
+    const customerList = custRes.ok ? await custRes.json() : [];
 
     return (
         <div className="space-y-6">
@@ -64,7 +69,7 @@ export default async function CustomersPage() {
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            customerList.map((customer) => (
+                            customerList.map((customer: any) => (
                                 <CustomerRow key={customer.id} customer={customer} platform={workspace.platform} />
                             ))
                         )}

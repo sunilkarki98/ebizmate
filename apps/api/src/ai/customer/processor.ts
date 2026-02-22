@@ -1,11 +1,10 @@
 import { db } from "@ebizmate/db";
 import { items, interactions, customers, feedbackQueue, workspaces } from "@ebizmate/db";
 import { eq, or, and, desc, sql, cosineDistance, gt, isNull, not, inArray, ilike } from "drizzle-orm";
-import { sanitizeLikeInput } from "../../common/utils/validation";
 import { getAIService } from "../services/factory";
-import { processStateMachine } from "../../common/workflow/state-machine";
+import { processStateMachine, PlatformFactory, decrypt, sanitizeLikeInput } from "@ebizmate/shared";
 import { CUSTOMER_SYSTEM_PROMPT } from "./prompts";
-import { PlatformFactory } from "../../common/platform/factory";
+import { checkOutboundRateLimit } from "../../common/platform/rate-limit";
 import { linkAndVerifyKB } from "../services/ingestion"; // Coach V4 ingestion
 
 /**
@@ -31,9 +30,9 @@ export async function processInteraction(interactionId: string) {
     const workspaceId = interaction.workspaceId;
 
     // --- AI Pause Check ---
-    if ((interaction.workspace.settings as any)?.ai_active === false) {
+    if (interaction.workspace.settings?.ai_active === false) {
         await db.update(interactions)
-            .set({ status: "IGNORED", response: "AI_PAUSED_BY_USER" })
+            .set({ status: "IGNORED", response: "AI_PAUSED_BY_USER", updatedAt: new Date() })
             .where(eq(interactions.id, interactionId));
         return "AI_PAUSED_BY_USER";
     }
@@ -61,7 +60,7 @@ export async function processInteraction(interactionId: string) {
         if (stateResult.reply) {
             const metaObj = (interaction.meta as Record<string, any>) || {};
             await db.update(interactions)
-                .set({ response: stateResult.reply, status: "PROCESSED", meta: { ...metaObj, isStateFlow: true } })
+                .set({ response: stateResult.reply, status: "PROCESSED", meta: { ...metaObj, isStateFlow: true }, updatedAt: new Date() })
                 .where(eq(interactions.id, interactionId));
             return stateResult.reply;
         }
@@ -188,7 +187,7 @@ export async function processInteraction(interactionId: string) {
     }
 
     // --- 5️⃣ Escalation & feedback queue ---
-    let finalStatus = "PROCESSED";
+    let finalStatus: "PROCESSED" | "NEEDS_REVIEW" = "PROCESSED";
     if (reply.includes("[ACTION_REQUIRED]") || confidence < 0.7) {
         finalStatus = "NEEDS_REVIEW";
 
@@ -224,13 +223,24 @@ export async function processInteraction(interactionId: string) {
     await db.update(interactions).set({
         response: reply,
         status: finalStatus,
-        meta: { confidence, vectorFallback }
+        meta: { ...(interaction.meta as Record<string, any> || {}), confidence, vectorFallback },
+        updatedAt: new Date(),
     }).where(eq(interactions.id, interactionId));
 
     // --- 7️⃣ Dispatch outbound message ---
     if (interaction.authorId && reply.length > 0) {
         try {
-            const client = PlatformFactory.getClient(interaction.workspace.platform || "generic");
+            // Decrypt workspace access token for multi-tenant platform auth
+            let accessToken: string | undefined;
+            if (interaction.workspace.accessToken) {
+                try { accessToken = decrypt(interaction.workspace.accessToken); }
+                catch { console.warn("Failed to decrypt workspace access token, falling back to env vars"); }
+            }
+
+            const client = PlatformFactory.getClient(interaction.workspace.platform || "generic", {
+                accessToken,
+                rateLimitFn: checkOutboundRateLimit,
+            });
             await client.send({
                 to: interaction.authorId,
                 text: reply,

@@ -1,9 +1,6 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { db } from "@ebizmate/db";
-import { customers, workspaces, interactions } from "@ebizmate/db";
-import { eq, and } from "drizzle-orm";
+import { auth, getBackendToken } from "@/lib/auth";
 
 /**
  * Resume AI responses for a customer after human takeover.
@@ -13,39 +10,32 @@ export async function resumeAiForCustomerAction(customerId: string) {
     const session = await auth();
     if (!session?.user?.id) throw new Error("Unauthorized");
 
-    // Verify ownership: customer must belong to the user's workspace
-    const customer = await db.query.customers.findFirst({
-        where: eq(customers.id, customerId),
-        with: { workspace: true },
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
+
+    // Verify ownership via API endpoint
+    const custRes = await fetch(`${backendUrl}/ai/customer/${customerId}`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
     });
 
-    if (!customer) throw new Error("Customer not found");
-    if (customer.workspace.userId !== session.user.id) {
+    if (!custRes.ok) {
+        if (custRes.status === 404) throw new Error("Customer not found");
         throw new Error("Unauthorized workspace access");
     }
 
-    // Resume AI
-    await db.update(customers)
-        .set({
-            aiPaused: false,
-            aiPausedAt: null,
-            conversationState: "IDLE",
-            conversationContext: {},
-            updatedAt: new Date(),
-        })
-        .where(eq(customers.id, customerId));
 
-    // Insert a system note so the conversation history reflects the handoff
-    await db.insert(interactions).values({
-        workspaceId: customer.workspaceId,
-        sourceId: "system",
-        externalId: `resume-ai-${Date.now()}`,
-        authorId: customer.platformId,
-        authorName: "System",
-        content: "Human takeover ended",
-        response: "AI has been resumed for this conversation. I'm back to assist! 🤖",
-        status: "PROCESSED",
+    const response = await fetch(`${backendUrl}/customer/${customerId}/resume`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${backendToken}`
+        }
     });
+
+    if (!response.ok) {
+        throw new Error("Failed to resume AI for customer");
+    }
 
     return { success: true };
 }
@@ -57,24 +47,32 @@ export async function pauseAiForCustomerAction(customerId: string) {
     const session = await auth();
     if (!session?.user?.id) throw new Error("Unauthorized");
 
-    const customer = await db.query.customers.findFirst({
-        where: eq(customers.id, customerId),
-        with: { workspace: true },
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
+
+    // Verify ownership via API endpoint
+    const custRes = await fetch(`${backendUrl}/ai/customer/${customerId}`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
     });
 
-    if (!customer) throw new Error("Customer not found");
-    if (customer.workspace.userId !== session.user.id) {
+    if (!custRes.ok) {
+        if (custRes.status === 404) throw new Error("Customer not found");
         throw new Error("Unauthorized workspace access");
     }
 
-    await db.update(customers)
-        .set({
-            aiPaused: true,
-            aiPausedAt: new Date(),
-            conversationState: "HUMAN_TAKEOVER",
-            updatedAt: new Date(),
-        })
-        .where(eq(customers.id, customerId));
+
+    const response = await fetch(`${backendUrl}/customer/${customerId}/pause`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${backendToken}`
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error("Failed to pause AI for customer");
+    }
 
     return { success: true };
 }

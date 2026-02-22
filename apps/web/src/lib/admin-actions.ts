@@ -1,12 +1,9 @@
 "use server";
 
-import { auth } from "@/lib/auth";
-import { db } from "@ebizmate/db";
-import { users, workspaces, interactions, items, aiUsageLog, auditLogs, customers } from "@ebizmate/db";
-import { eq, desc, count, sql, gte, and } from "drizzle-orm";
+import { auth, getBackendToken } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
-import { redis } from "@/lib/redis";
-import { getAISettingsAction } from "@/lib/ai-settings-actions";
+
+const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 // --- Admin Guard ---
 
@@ -18,418 +15,208 @@ async function requireAdmin() {
     return session.user;
 }
 
-// --- Audit Log Helper ---
-
-async function logAudit(userId: string, action: string, targetType: string, targetId: string, details?: Record<string, unknown>) {
-    try {
-        await db.insert(auditLogs).values({
-            userId,
-            action,
-            targetType,
-            targetId,
-            details: details || null,
-        });
-    } catch (err) {
-        console.error("Failed to log audit:", err);
-    }
-}
-
-// ===== ANALYTICS =====
+// --- Admin Actions ---
 
 export async function getAnalyticsAction() {
     await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    // Usage by day (last 30 days)
-    const dailyUsage = await db
-        .select({
-            date: sql<string>`to_char(${aiUsageLog.createdAt}, 'YYYY-MM-DD')`,
-            provider: aiUsageLog.provider,
-            calls: sql<number>`count(*)::int`,
-            tokens: sql<number>`coalesce(sum(${aiUsageLog.totalTokens}), 0)::int`,
-            avgLatency: sql<number>`coalesce(avg(${aiUsageLog.latencyMs}), 0)::int`,
-            errors: sql<number>`count(*) filter (where ${aiUsageLog.success} = false)::int`,
-        })
-        .from(aiUsageLog)
-        .where(gte(aiUsageLog.createdAt, thirtyDaysAgo))
-        .groupBy(sql`to_char(${aiUsageLog.createdAt}, 'YYYY-MM-DD')`, aiUsageLog.provider)
-        .orderBy(sql`to_char(${aiUsageLog.createdAt}, 'YYYY-MM-DD')`);
-
-    // Breakdown by provider
-    const providerBreakdown = await db
-        .select({
-            provider: aiUsageLog.provider,
-            operation: aiUsageLog.operation,
-            totalCalls: sql<number>`count(*)::int`,
-            totalTokens: sql<number>`coalesce(sum(${aiUsageLog.totalTokens}), 0)::int`,
-            avgLatency: sql<number>`coalesce(avg(${aiUsageLog.latencyMs}), 0)::int`,
-            errorRate: sql<number>`round(100.0 * count(*) filter (where ${aiUsageLog.success} = false) / nullif(count(*), 0), 1)`,
-        })
-        .from(aiUsageLog)
-        .groupBy(aiUsageLog.provider, aiUsageLog.operation);
-
-    // Top workspaces by usage
-    const topWorkspaces = await db
-        .select({
-            workspaceId: aiUsageLog.workspaceId,
-            workspaceName: workspaces.name,
-            totalCalls: sql<number>`count(*)::int`,
-            totalTokens: sql<number>`coalesce(sum(${aiUsageLog.totalTokens}), 0)::int`,
-        })
-        .from(aiUsageLog)
-        .leftJoin(workspaces, eq(aiUsageLog.workspaceId, workspaces.id))
-        .groupBy(aiUsageLog.workspaceId, workspaces.name)
-        .orderBy(sql`count(*) desc`)
-        .limit(10);
-
-    // Totals
-    const [totals] = await db
-        .select({
-            totalCalls: sql<number>`count(*)::int`,
-            totalTokens: sql<number>`coalesce(sum(${aiUsageLog.totalTokens}), 0)::int`,
-            totalErrors: sql<number>`count(*) filter (where ${aiUsageLog.success} = false)::int`,
-        })
-        .from(aiUsageLog);
-
-    return {
-        dailyUsage,
-        providerBreakdown,
-        topWorkspaces,
-        totals: totals || { totalCalls: 0, totalTokens: 0, totalErrors: 0 },
-    };
+    const res = await fetch(`${backendUrl}/admin/analytics`, {
+        headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error("Failed to fetch analytics");
+    return await res.json();
 }
-
-// ===== USER MANAGEMENT =====
 
 export async function getUsersAction() {
     await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    const allUsers = await db
-        .select({
-            id: users.id,
-            name: users.name,
-            email: users.email,
-            role: users.role,
-            createdAt: users.createdAt,
-            image: users.image,
-        })
-        .from(users)
-        .orderBy(desc(users.createdAt));
-
-    return allUsers;
+    const res = await fetch(`${backendUrl}/admin/users`, {
+        headers: { "Authorization": `Bearer ${token}` },
+        cache: 'no-store'
+    });
+    if (!res.ok) throw new Error("Failed to fetch users");
+    return await res.json();
 }
 
 export async function updateUserRoleAction(userId: string, newRole: "admin" | "user") {
-    const admin = await requireAdmin();
+    await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    if (userId === admin.id) {
-        return { error: "Cannot change your own role" };
-    }
-
-    if (!["admin", "user"].includes(newRole)) {
-        return { error: "Invalid role" };
-    }
-
-    const [targetUser] = await db.select({ email: users.email, role: users.role }).from(users).where(eq(users.id, userId));
-    if (!targetUser) return { error: "User not found" };
-
-    await db.update(users).set({ role: newRole, updatedAt: new Date() }).where(eq(users.id, userId));
-
-    await logAudit(admin.id!, "user.role_changed", "user", userId, {
-        email: targetUser.email,
-        from: targetUser.role,
-        to: newRole,
+    const res = await fetch(`${backendUrl}/admin/users/${userId}/role`, {
+        method: "PUT",
+        headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ role: newRole })
     });
+    if (!res.ok) {
+        const err = await res.json();
+        return { error: err.message || "Failed to update user role" };
+    }
 
+    revalidatePath("/admin/users");
     return { success: true };
 }
-
-// ===== WORKSPACE MANAGEMENT =====
 
 export async function getWorkspacesAction() {
     await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    const allWorkspaces = await db
-        .select({
-            id: workspaces.id,
-            name: workspaces.name,
-            platform: workspaces.platform,
-            platformHandle: workspaces.platformHandle,
-            ownerName: users.name,
-            ownerEmail: users.email,
-            allowGlobalAi: workspaces.allowGlobalAi,
-            plan: workspaces.plan,
-            status: workspaces.status,
-            trialEndsAt: workspaces.trialEndsAt,
-            customUsageLimit: workspaces.customUsageLimit,
-            createdAt: workspaces.createdAt,
-            itemCount: sql<number>`(select count(*) from items where items."workspaceId" = workspaces.id)::int`,
-            interactionCount: sql<number>`(select count(*) from interactions where interactions."workspaceId" = workspaces.id)::int`,
-            currentMonthUsage: sql<number>`(
-                select coalesce(sum("totalTokens"), 0) 
-                from ai_usage_log 
-                where "workspaceId" = workspaces.id 
-                and "createdAt" >= date_trunc('month', now())
-            )::int`,
-        })
-        .from(workspaces)
-        .leftJoin(users, eq(workspaces.userId, users.id))
-        .orderBy(desc(workspaces.createdAt));
-
-    return allWorkspaces;
+    const res = await fetch(`${backendUrl}/admin/workspaces`, {
+        headers: { "Authorization": `Bearer ${token}` },
+        cache: 'no-store'
+    });
+    if (!res.ok) throw new Error("Failed to fetch workspaces");
+    return await res.json();
 }
 
 export async function toggleGlobalAiAccessAction(workspaceId: string, allowed: boolean) {
-    const admin = await requireAdmin();
+    await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    await db.update(workspaces)
-        .set({ allowGlobalAi: allowed })
-        .where(eq(workspaces.id, workspaceId));
-
-    await logAudit(admin.id!, "workspace.global_ai_toggled", "workspace", workspaceId, {
-        allowed
+    const res = await fetch(`${backendUrl}/admin/workspaces/${workspaceId}/global-ai`, {
+        method: "PUT",
+        headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ allowed })
     });
-
-    revalidatePath("/admin/workspaces");
-    return { success: true };
-}
-
-export async function updateWorkspacePlanAction(
-    workspaceId: string,
-    data: {
-        plan: string,
-        status: string,
-        customUsageLimit: number | null,
-        trialEndsAt: Date | null
+    if (!res.ok) {
+        const err = await res.json();
+        return { error: err.message || "Failed to toggle AI access" };
     }
-) {
-    const admin = await requireAdmin();
-
-    await db.update(workspaces)
-        .set({
-            plan: data.plan,
-            status: data.status,
-            customUsageLimit: data.customUsageLimit,
-            trialEndsAt: data.trialEndsAt,
-            updatedAt: new Date()
-        })
-        .where(eq(workspaces.id, workspaceId));
-
-    await logAudit(admin.id!, "workspace.plan_updated", "workspace", workspaceId, data);
 
     revalidatePath("/admin/workspaces");
     return { success: true };
 }
 
-// ===== ESCALATION REVIEW =====
+export async function updateWorkspacePlanAction(workspaceId: string, data: any) {
+    await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
+
+    const res = await fetch(`${backendUrl}/admin/workspaces/${workspaceId}/plan`, {
+        method: "PUT",
+        headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error("Failed to update workspace plan");
+
+    revalidatePath("/admin/workspaces");
+    return { success: true };
+}
 
 export async function getEscalationsAction() {
     await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    const escalated = await db
-        .select({
-            id: interactions.id,
-            content: interactions.content,
-            response: interactions.response,
-            authorName: interactions.authorName,
-            authorId: interactions.authorId,
-            status: interactions.status,
-            createdAt: interactions.createdAt,
-            workspaceId: interactions.workspaceId,
-            workspaceName: workspaces.name,
-        })
-        .from(interactions)
-        .leftJoin(workspaces, eq(interactions.workspaceId, workspaces.id))
-        .where(eq(interactions.status, "ACTION_REQUIRED"))
-        .orderBy(desc(interactions.createdAt))
-        .limit(100);
-
-    return escalated;
+    const res = await fetch(`${backendUrl}/admin/escalations`, {
+        headers: { "Authorization": `Bearer ${token}` },
+        cache: 'no-store'
+    });
+    if (!res.ok) throw new Error("Failed to fetch escalations");
+    return await res.json();
 }
 
 export async function resolveEscalationAction(interactionId: string) {
-    const admin = await requireAdmin();
+    await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    await db.update(interactions)
-        .set({ status: "RESOLVED" })
-        .where(eq(interactions.id, interactionId));
+    const res = await fetch(`${backendUrl}/admin/escalations/${interactionId}/resolve`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error("Failed to resolve escalation");
 
-    await logAudit(admin.id!, "escalation.resolved", "interaction", interactionId);
-
+    revalidatePath("/admin/escalations");
     return { success: true };
 }
 
-// ===== WEBHOOK/CONNECTION INFO =====
-
 export async function getWebhooksAction() {
     await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    const connections = await db
-        .select({
-            id: workspaces.id,
-            name: workspaces.name,
-            platform: workspaces.platform,
-            platformId: workspaces.platformId,
-            platformHandle: workspaces.platformHandle,
-            hasAccessToken: sql<boolean>`${workspaces.accessToken} is not null`,
-            ownerEmail: users.email,
-            createdAt: workspaces.createdAt,
-        })
-        .from(workspaces)
-        .leftJoin(users, eq(workspaces.userId, users.id))
-        .orderBy(desc(workspaces.createdAt));
-
-    return connections;
+    const res = await fetch(`${backendUrl}/admin/webhooks`, {
+        headers: { "Authorization": `Bearer ${token}` },
+        cache: 'no-store'
+    });
+    if (!res.ok) throw new Error("Failed to fetch webhooks");
+    return await res.json();
 }
 
 export async function getWebhookSecretsAction() {
     await requireAdmin();
-    return {
-        secret: process.env.WEBHOOK_SECRET || "",
-        verifyToken: process.env.WEBHOOK_VERIFY_TOKEN || "",
-    };
-}
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-// ===== AUDIT LOGS =====
+    const res = await fetch(`${backendUrl}/admin/webhooks/secrets`, {
+        headers: { "Authorization": `Bearer ${token}` },
+        cache: 'no-store'
+    });
+    if (!res.ok) throw new Error("Failed to fetch webhook secrets");
+    return await res.json();
+}
 
 export async function getAuditLogsAction() {
     await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    const logs = await db
-        .select({
-            id: auditLogs.id,
-            action: auditLogs.action,
-            targetType: auditLogs.targetType,
-            targetId: auditLogs.targetId,
-            details: auditLogs.details,
-            createdAt: auditLogs.createdAt,
-            userName: users.name,
-            userEmail: users.email,
-        })
-        .from(auditLogs)
-        .leftJoin(users, eq(auditLogs.userId, users.id))
-        .orderBy(desc(auditLogs.createdAt))
-        .limit(100);
-
-    return logs;
+    const res = await fetch(`${backendUrl}/admin/audit-logs`, {
+        headers: { "Authorization": `Bearer ${token}` },
+        cache: 'no-store'
+    });
+    if (!res.ok) throw new Error("Failed to fetch audit logs");
+    return await res.json();
 }
-
-// ===== PLATFORM-WIDE OVERVIEW STATS (for admin dashboard) =====
 
 export async function getAdminOverviewAction() {
     await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    const [userCount] = await db.select({ count: count() }).from(users);
-    const [workspaceCount] = await db.select({ count: count() }).from(workspaces);
-    const [interactionCount] = await db.select({ count: count() }).from(interactions);
-    const [itemCount] = await db.select({ count: count() }).from(items);
-    const [escalationCount] = await db
-        .select({ count: count() })
-        .from(interactions)
-        .where(eq(interactions.status, "ACTION_REQUIRED"));
-
-    const [tokenStats] = await db
-        .select({
-            totalTokens: sql<number>`coalesce(sum(${aiUsageLog.totalTokens}), 0)::int`,
-            totalCalls: sql<number>`count(*)::int`,
-        })
-        .from(aiUsageLog);
-
-    const [coachStats] = await db
-        .select({ count: count() })
-        .from(aiUsageLog)
-        .where(eq(aiUsageLog.operation, "coach_chat"));
-
-    const [botStats] = await db
-        .select({ count: count() })
-        .from(aiUsageLog)
-        .where(eq(aiUsageLog.operation, "chat"));
-
-    // Check Connections
-    let dbStatus = false;
-    try {
-        // Simple liveness check
-        await db.execute(sql`SELECT 1`);
-        dbStatus = true;
-    } catch { dbStatus = false; }
-
-    let redisStatus = false;
-    try {
-        if (redis) {
-            const ping = await redis.ping();
-            redisStatus = ping === "PONG";
-        }
-    } catch { redisStatus = false; }
-
-    let aiStatus = false;
-    try {
-        const settings = await getAISettingsAction();
-        const coachOk = (settings.coachProvider === "openai" && settings.openaiApiKeySet) ||
-            (settings.coachProvider === "gemini" && settings.geminiApiKeySet) ||
-            (settings.coachProvider === "openrouter" && settings.openrouterApiKeySet) ||
-            (settings.coachProvider === "groq" && settings.groqApiKeySet);
-        const customerOk = (settings.customerProvider === "openai" && settings.openaiApiKeySet) ||
-            (settings.customerProvider === "gemini" && settings.geminiApiKeySet) ||
-            (settings.customerProvider === "openrouter" && settings.openrouterApiKeySet) ||
-            (settings.customerProvider === "groq" && settings.groqApiKeySet);
-        aiStatus = coachOk && customerOk;
-    } catch { aiStatus = false; }
-
-    return {
-        users: userCount.count,
-        workspaces: workspaceCount.count,
-        interactions: interactionCount.count,
-        items: itemCount.count,
-        escalations: escalationCount.count,
-        totalTokens: tokenStats?.totalTokens || 0,
-        totalApiCalls: tokenStats?.totalCalls || 0,
-        coachCalls: coachStats.count,
-        botCalls: botStats.count,
-        health: {
-            db: dbStatus,
-            redis: redisStatus,
-            ai: aiStatus
-        }
-    };
+    const res = await fetch(`${backendUrl}/admin/overview`, {
+        headers: { "Authorization": `Bearer ${token}` },
+        cache: 'no-store'
+    });
+    if (!res.ok) throw new Error("Failed to fetch admin overview");
+    return await res.json();
 }
 
-// ===== HUMAN TAKEOVER =====
-
 export async function toggleAiPauseAction(workspaceId: string, platformId: string) {
-    const admin = await requireAdmin();
+    await requireAdmin();
+    const token = await getBackendToken();
+    if (!token) throw new Error("No backend token");
 
-    // Find the customer
-    const [customer] = await db
-        .select()
-        .from(customers)
-        .where(
-            and(
-                eq(customers.workspaceId, workspaceId),
-                eq(customers.platformId, platformId)
-            )
-        );
-
-    if (!customer) {
-        return { error: "Customer not found" };
-    }
-
-    const newStatus = !customer.aiPaused;
-
-    await db.update(customers)
-        .set({
-            aiPaused: newStatus,
-            aiPausedAt: newStatus ? new Date() : null,
-            updatedAt: new Date()
-        })
-        .where(eq(customers.id, customer.id));
-
-    await logAudit(admin.id!, "customer.ai_pause_toggled", "customer", customer.id, {
-        paused: newStatus,
-        platformId,
-        workspaceId
+    const res = await fetch(`${backendUrl}/admin/customers/pause`, {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ workspaceId, platformId })
     });
 
-    return { success: true, paused: newStatus };
+    if (!res.ok) {
+        return { error: "Failed to toggle AI pause" };
+    }
+
+    const data = await res.json();
+    revalidatePath("/dashboard/customers");
+    return { success: true, paused: data.paused };
 }

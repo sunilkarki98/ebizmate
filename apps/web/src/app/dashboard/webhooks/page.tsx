@@ -1,18 +1,20 @@
-import { auth } from "@/lib/auth";
-import { db } from "@ebizmate/db";
-import { workspaces } from "@ebizmate/db";
-import { eq } from "drizzle-orm";
+import { auth, getBackendToken } from "@/lib/auth";
 import { WebhookSimulatorClient } from "./webhook-simulator";
 
 export default async function WebhooksPage() {
     const session = await auth();
     if (!session?.user?.id) return null;
 
-    const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.userId, session.user.id),
-    });
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
 
-    if (!workspace) return null;
+    // 1. Fetch Workspace Info 
+    const wsRes = await fetch(`${backendUrl}/settings/workspace`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
+    });
+    if (!wsRes.ok) return null;
+    const workspace = await wsRes.json();
 
     return (
         <div className="space-y-6">

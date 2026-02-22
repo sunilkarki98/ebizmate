@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/utils/supabase/server'
 import { createServerClient } from '@supabase/ssr'
-import { db } from "@ebizmate/db";
-import { users, workspaces } from "@ebizmate/db";
-import { eq } from "drizzle-orm";
+
 
 export async function GET(request: Request) {
     const requestUrl = new URL(request.url)
@@ -43,28 +41,22 @@ export async function GET(request: Request) {
             const name = data.user.user_metadata.full_name || email.split("@")[0];
 
             try {
-                // Check if profile exists
-                const existing = await db.query.users.findFirst({
-                    where: eq(users.id, userId)
+                const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+                const response = await fetch(`${backendUrl}/auth/sync`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${data.session.access_token}`
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        name: name,
+                        image: data.user.user_metadata.avatar_url
+                    })
                 });
 
-                if (!existing) {
-                    await db.transaction(async (tx) => {
-                        await tx.insert(users).values({
-                            id: userId,
-                            name,
-                            email,
-                            role: "user",
-                            image: data.user.user_metadata.avatar_url,
-                            emailVerified: new Date(),
-                        });
-
-                        await tx.insert(workspaces).values({
-                            userId: userId,
-                            name: `${name}'s Workspace`,
-                            platform: "generic",
-                        });
-                    });
+                if (!response.ok) {
+                    console.error("Callback Sync API Error:", await response.text());
                 }
             } catch (err) {
                 console.error("Callback Sync Error:", err);

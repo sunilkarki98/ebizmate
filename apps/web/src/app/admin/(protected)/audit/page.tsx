@@ -52,7 +52,7 @@ export default async function AuditPage() {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    logs.map((log) => {
+                                    logs.map((log: any) => {
                                         const actionInfo = actionLabels[log.action] || { label: log.action, variant: "outline" as const };
                                         const details = log.details as Record<string, unknown> | null;
 

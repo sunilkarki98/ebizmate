@@ -1,22 +1,26 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    "target": "ES2022",
     "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
     ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "noEmit": true,
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
     "plugins": [
       {
         "name": "next"
@@ -28,7 +32,19 @@
         "./src/*"
       ],
       "@/db/*": [
-        "../../packages/db/src/*"
+        "../packages/db/src/*"
+      ],
+      "@ebizmate/db": [
+        "../packages/db/src"
+      ],
+      "@ebizmate/db/*": [
+        "../packages/db/src/*"
+      ],
+      "@ebizmate/shared": [
+        "../packages/shared/src"
+      ],
+      "@ebizmate/shared/*": [
+        "../packages/shared/src/*"
       ]
     }
   },
@@ -37,8 +53,7 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

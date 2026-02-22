@@ -1,21 +1,20 @@
-import { auth } from "@/lib/auth";
-import { db } from "@ebizmate/db";
-import { workspaces } from "@ebizmate/db";
-import { eq } from "drizzle-orm";
+import { auth, getBackendToken } from "@/lib/auth";
 import { SettingsForm } from "./settings-form";
 
 export default async function SettingsPage() {
     const session = await auth();
     if (!session?.user?.id) return null;
 
-    const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.userId, session.user.id),
-        with: {
-            aiSettings: true,
-        }
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
+
+    const wsRes = await fetch(`${backendUrl}/settings/workspace-detailed`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
     });
 
-    if (!workspace) return null;
+    if (!wsRes.ok) return null;
+    const workspace = await wsRes.json();
 
     return (
         <div className="space-y-6">

@@ -1,7 +1,5 @@
 import { auth } from "@/lib/auth";
-import { db } from "@ebizmate/db";
-import { interactions, workspaces } from "@ebizmate/db";
-import { eq, desc } from "drizzle-orm";
+import { getBackendToken } from "@/lib/auth";
 import { Suspense } from "react";
 import InteractionsClient from "./interactions-client";
 
@@ -9,20 +7,23 @@ export default async function InteractionsPage() {
     const session = await auth();
     if (!session?.user?.id) return null;
 
-    const workspace = await db.query.workspaces.findFirst({
-        where: eq(workspaces.userId, session.user.id),
-    });
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
 
-    if (!workspace) return null;
-
-    const logs = await db.query.interactions.findMany({
-        where: eq(interactions.workspaceId, workspace.id),
-        orderBy: desc(interactions.createdAt),
-        limit: 50,
-        with: {
-            post: true,
-        },
+    // 1. Fetch Workspace Info (to pass down to client, just in case)
+    const wsRes = await fetch(`${backendUrl}/settings/workspace`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
     });
+    if (!wsRes.ok) return null;
+    const workspace = await wsRes.json();
+
+    // 2. Fetch Interactions
+    const interactionsRes = await fetch(`${backendUrl}/ai/customer/interactions`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
+    });
+    const logs = interactionsRes.ok ? await interactionsRes.json() : [];
 
     return (
         <div className="space-y-6">

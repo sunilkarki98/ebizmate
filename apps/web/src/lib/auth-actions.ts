@@ -1,8 +1,5 @@
 "use server";
 
-import { db } from "@ebizmate/db";
-import { users, workspaces } from "@ebizmate/db";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
@@ -19,6 +16,10 @@ export async function loginAction(formData: FormData) {
     const password = formData.get("password") as string;
 
     const supabase = await createClient();
+
+    if (!supabase) {
+        return { error: "Failed to initialize auth client" };
+    }
 
     const { error } = await supabase.auth.signInWithPassword({
         email,
@@ -41,7 +42,9 @@ export async function loginWithGoogleAction() {
 
 export async function logoutAction() {
     const supabase = await createClient();
-    await supabase.auth.signOut();
+    if (supabase) {
+        await supabase.auth.signOut();
+    }
     redirect("/signin");
 }
 
@@ -58,6 +61,11 @@ export async function registerAction(formData: FormData) {
 
     // 2. Create User in Supabase Auth
     const supabase = await createClient();
+
+    if (!supabase) {
+        return { error: "Failed to initialize auth client" };
+    }
+
     const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -76,41 +84,30 @@ export async function registerAction(formData: FormData) {
         return { error: "Registration failed (No user returned)" };
     }
 
-    // 3. Sync to Public DB (Profile & Workspace)
-    // We use the SAME ID as Supabase Auth to make joins easy
-    const userId = authData.user.id;
-
+    // 3. Sync to Public DB via API
     try {
-        await db.transaction(async (tx) => {
-            // Check if profile exists (idempotency)
-            const existing = await tx.query.users.findFirst({
-                where: eq(users.id, userId)
-            });
-
-            if (!existing) {
-                // Insert User Profile
-                await tx.insert(users).values({
-                    id: userId, // CRITICAL: Use Supabase UUID
-                    name,
-                    email,
-                    role: "user",
-                    // No password hash needed here, handled by Supabase
-                });
-
-                // Create Default Workspace
-                await tx.insert(workspaces).values({
-                    userId: userId,
-                    name: `${name}'s Workspace`,
-                    platform: "generic",
-                });
-            }
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+        const response = await fetch(`${backendUrl}/auth/sync`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                // Supabase JWT created upon successful signup 
+                'Authorization': `Bearer ${authData.session?.access_token || ''}`
+            },
+            body: JSON.stringify({
+                email,
+                name
+            })
         });
+
+        if (!response.ok) {
+            console.error("Auth sync failed with API:", await response.text());
+            return { error: "Account created but profile sync failed. Please contact support." };
+        }
 
         return { success: true };
     } catch (err) {
         console.error("Sync failed:", err);
-        // We warn the user but don't fail the auth if possible, OR fail hard.
-        // Failing hard is safer to prevent broken states.
         return { error: "Account created but profile sync failed. Please contact support." };
     }
 }

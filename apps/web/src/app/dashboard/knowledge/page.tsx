@@ -1,12 +1,17 @@
 
-import { getWorkspace } from "@/lib/item-actions";
-import { db } from "@ebizmate/db";
-import { items } from "@ebizmate/db";
-import { eq, desc } from "drizzle-orm";
+import { getBackendToken } from "@/lib/auth";
 import KnowledgePageClient from "./knowledge-page-client";
 
 export default async function ItemsPage() {
-    const workspace = await getWorkspace();
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendToken = await getBackendToken();
+
+    // Fetch workspace context
+    const wsRes = await fetch(`${backendUrl}/settings/workspace`, {
+        headers: { "Authorization": `Bearer ${backendToken}` },
+        cache: 'no-store'
+    });
+    const workspace = wsRes.ok ? await wsRes.json() : null;
 
     let workspaceItems: {
         id: string;
@@ -20,26 +25,14 @@ export default async function ItemsPage() {
     }[] = [];
 
     if (workspace) {
-        const rows = await db
-            .select({
-                id: items.id,
-                name: items.name,
-                content: items.content,
-                category: items.category,
-                sourceId: items.sourceId,
-                meta: items.meta,
-                createdAt: items.createdAt,
-                updatedAt: items.updatedAt,
-            })
-            .from(items)
-            .where(eq(items.workspaceId, workspace.id))
-            .orderBy(desc(items.createdAt));
+        const itemsRes = await fetch(`${backendUrl}/items/all`, {
+            headers: { "Authorization": `Bearer ${backendToken}` },
+            cache: 'no-store'
+        });
 
-        workspaceItems = rows.map((r) => ({
-            ...r,
-            createdAt: r.createdAt?.toISOString() ?? null,
-            updatedAt: r.updatedAt?.toISOString() ?? null,
-        }));
+        if (itemsRes.ok) {
+            workspaceItems = await itemsRes.json();
+        }
     }
 
     return <KnowledgePageClient initialItems={workspaceItems} workspace={workspace} />;
