@@ -4,7 +4,7 @@ const envSchema = z.object({
     DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
     AUTH_SECRET: z.string().min(1, "AUTH_SECRET is required"),
     ENCRYPTION_KEY: z.string().min(1, "ENCRYPTION_KEY is required for API key encryption"),
-    REDIS_URL: z.string().optional(),
+    DRAGONFLY_URL: z.string().optional(),
     OPENAI_API_KEY: z.string().optional(),
     GEMINI_API_KEY: z.string().optional(),
     OPENROUTER_API_KEY: z.string().optional(),

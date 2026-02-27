@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  ebizmate-api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.api
+    container_name: ebizmate-api
+    restart: unless-stopped
+    ports:
+      - "8080:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      # These must be injected via .env file on the Hetzner VM
+      - DATABASE_URL=${DATABASE_URL}
+      - DRAGONFLY_URL=dragonfly://ebizmate-dragonfly:6379
+      - FRONTEND_URL=${FRONTEND_URL}
+      - INTERNAL_API_SECRET=${INTERNAL_API_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    depends_on:
+      dragonfly:
+        condition: service_healthy
+
+  ebizmate-dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly
+    container_name: ebizmate-dragonfly
+    restart: unless-stopped
+    command: --requirepass ${DRAGONFLY_PASSWORD:-strong_default_pass}
+    ulimits:
+      memlock: -1
+    volumes:
+      - dragonfly_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  dragonfly_data:

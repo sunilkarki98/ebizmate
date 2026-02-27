@@ -4,12 +4,13 @@ import { eq, and, desc } from 'drizzle-orm';
 import { getAIService } from '../services/factory.js';
 import { CreateItemDto, UpdateItemDto, createItemSchema, updateItemSchema } from '@ebizmate/contracts';
 import { Queue } from 'bullmq';
+import { getDragonflyConfig } from '@ebizmate/shared';
 
 // FIX #3: Lazy singleton Redis connection for enqueuing jobs
 let _aiQueue: Queue | null = null;
 function getAIQueue(): Queue {
     if (!_aiQueue) {
-        _aiQueue = new Queue('ai', { connection: { url: process.env.REDIS_URL || 'redis://localhost:6379' } });
+        _aiQueue = new Queue('ai', { connection: getDragonflyConfig() });
     }
     return _aiQueue;
 }

@@ -1,0 +1,36 @@
+name: CD Pipeline (Hetzner VM)
+
+on:
+  push:
+    branches: ["main"]
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types:
+      - completed
+
+jobs:
+  deploy:
+    name: Deploy to Hetzner
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+      - name: Execute Remote Deployment Script
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HETZNER_HOST }}
+          username: ${{ secrets.HETZNER_USER }}
+          key: ${{ secrets.HETZNER_SSH_KEY }}
+          script: |
+            cd /opt/ebizmate
+            # Pull latest changes from git
+            git pull origin main
+            
+            # Rebuild the production API image using Turborepo Docker pruning
+            docker compose -f docker-compose.prod.yml build
+            
+            # Restart the services with zero downtime
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            
+            # Clean up old images to save disk space on the VM
+            docker image prune -f
