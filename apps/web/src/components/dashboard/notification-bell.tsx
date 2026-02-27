@@ -15,6 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { getNotificationsAction, type SystemNotification } from "@/lib/notification-actions";
 import Link from "next/link";
+import { toast } from "sonner";
 
 function timeAgo(date: Date | null): string {
     if (!date) return "";
@@ -46,13 +47,79 @@ export function NotificationBell() {
         try {
             const result = await getNotificationsAction(15);
             setNotifications(result.notifications);
+
+            // If we have more unread notifications than before, trigger a toast!
+            if (result.unreadCount > unreadCount && result.notifications.length > 0) {
+                const latest = result.notifications[0];
+                if (latest) {
+                    toast(latest.title, {
+                        description: latest.message.substring(0, 100) + "...",
+                        icon: latest.type === "escalation" ? "🚨" : "🔔",
+                    });
+                }
+            }
+
             setUnreadCount(result.unreadCount);
         } catch (err) {
             console.error("Failed to fetch notifications:", err);
         }
-    }, []);
+    }, [unreadCount]);
 
-    // Fetch on mount and poll every 30 seconds
+    // Set up Server-Sent Events (SSE) for real-time push notifications
+    useEffect(() => {
+        let eventSource: EventSource | null = null;
+        let reconnectDelay = 5000; // Start at 5s, grow to 30s max
+        let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const connectSSE = async () => {
+            try {
+                const apiUrl = process.env['NEXT_PUBLIC_API_URL'] || 'http://localhost:3001';
+
+                // Fetch JWT for SSE authentication
+                const tokenRes = await fetch('/api/auth/token');
+                if (!tokenRes.ok) {
+                    console.warn("[SSE] Could not fetch auth token, skipping SSE connection");
+                    // Retry with backoff
+                    reconnectTimer = setTimeout(connectSSE, reconnectDelay);
+                    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+                    return;
+                }
+                const { token } = await tokenRes.json();
+
+                eventSource = new EventSource(`${apiUrl}/notifications/stream?token=${token}`);
+
+                eventSource.onopen = () => {
+                    // Reset backoff on successful connection
+                    reconnectDelay = 5000;
+                };
+
+                eventSource.onmessage = (event) => {
+                    fetchNotifications();
+                };
+
+                eventSource.onerror = () => {
+                    eventSource?.close();
+                    eventSource = null;
+                    // Reconnect with exponential backoff
+                    reconnectTimer = setTimeout(connectSSE, reconnectDelay);
+                    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+                };
+            } catch (err) {
+                console.error("[SSE] Failed to setup:", err);
+                reconnectTimer = setTimeout(connectSSE, reconnectDelay);
+                reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+            }
+        };
+
+        connectSSE();
+
+        return () => {
+            if (eventSource) eventSource.close();
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+        };
+    }, [fetchNotifications]);
+
+    // Fetch on mount and poll every 30 seconds as an offline fallback
     useEffect(() => {
         fetchNotifications();
         const interval = setInterval(fetchNotifications, 30000);

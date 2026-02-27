@@ -12,8 +12,8 @@ export async function GET(request: Request) {
     if (code) {
         const cookieStore = await (await import('next/headers')).cookies()
         const supabase = createServerClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            process.env["NEXT_PUBLIC_SUPABASE_URL"]!,
+            process.env["NEXT_PUBLIC_SUPABASE_ANON_KEY"]!,
             {
                 cookies: {
                     getAll() {
@@ -38,11 +38,14 @@ export async function GET(request: Request) {
             // SYNC USER TO DB
             const userId = data.user.id;
             const email = data.user.email!;
-            const name = data.user.user_metadata.full_name || email.split("@")[0];
+            const name = data.user.user_metadata["full_name"] || email.split("@")[0];
 
             try {
-                const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-                const response = await fetch(`${backendUrl}/auth/sync`, {
+                // NEXT_PUBLIC_API_URL usually contains the /api prefix (e.g., http://localhost:3001/api)
+                const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001/api";
+                const baseUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
+
+                const response = await fetch(`${baseUrl}/auth/sync`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -51,7 +54,7 @@ export async function GET(request: Request) {
                     body: JSON.stringify({
                         email: email,
                         name: name,
-                        image: data.user.user_metadata.avatar_url
+                        image: data.user.user_metadata["avatar_url"]
                     })
                 });
 

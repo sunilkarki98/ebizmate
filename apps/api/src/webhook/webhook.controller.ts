@@ -1,7 +1,7 @@
 import { Controller, Post, Body, Param, UseGuards, BadRequestException } from '@nestjs/common';
 import { WebhookService } from './webhook.service';
 import { InternalSecretGuard } from '../common/guards/internal-secret.guard';
-import { webhookBodySchema } from '../common/utils/validation';
+import { webhookBodySchema } from '@ebizmate/contracts';
 
 @Controller('webhook/internal')
 @UseGuards(InternalSecretGuard)
@@ -15,7 +15,7 @@ export class WebhookController {
     ) {
         // Validate payload using Zod schema
         const parsed = webhookBodySchema.safeParse(rawPayload);
-        
+
         if (!parsed.success) {
             throw new BadRequestException({
                 message: 'Invalid webhook payload',

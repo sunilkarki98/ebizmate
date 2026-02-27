@@ -6,11 +6,11 @@ import { auth } from "@/lib/auth";
 
 const userLinks = [
     { href: "/dashboard/coach", label: "AI Coach", icon: Sparkles },
-    { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
     { href: "/dashboard/knowledge", label: "Knowledge Base", icon: BookOpen },
     { href: "/dashboard/interactions", label: "Interactions", icon: MessageSquare },
     { href: "/dashboard/customers", label: "Customers", icon: Users },
     { href: "/dashboard/connect", label: "Connect Social", icon: Share2 },
+    { href: "/dashboard/overview", label: "Overview", icon: LayoutDashboard },
     { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 

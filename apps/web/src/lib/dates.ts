@@ -1,7 +1,7 @@
 export function parseDuration(durationStr?: string): Date | null {
     if (!durationStr) return null;
     const match = durationStr.match(/^(\d+)([dhwmy])$/);
-    if (!match) return null;
+    if (!match || !match[1] || !match[2]) return null;
     const value = parseInt(match[1]);
     const unit = match[2];
     const date = new Date();

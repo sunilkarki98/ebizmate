@@ -23,7 +23,7 @@ import { signOut } from "next-auth/react";
 interface UserNavProps {
     user: {
         name?: string | null;
-        email?: string | null;
+        email?: string | null | undefined;
         image?: string | null;
     };
 }

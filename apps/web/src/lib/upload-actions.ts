@@ -6,10 +6,9 @@ import { revalidatePath } from "next/cache";
 
 // Max file size: 4MB
 const MAX_FILE_SIZE = 4 * 1024 * 1024;
-const ONE_MINUTE = 60 * 1000;
 
 import { getWorkspace } from "@/lib/item-actions";
-import { getBackendToken } from "@/lib/auth";
+import { apiClient } from "@/lib/api-client";
 
 export async function uploadFileForIngestion(
     formData: FormData
@@ -22,10 +21,6 @@ export async function uploadFileForIngestion(
     if (!file) return { success: false, error: "No file provided" };
     if (file.size > MAX_FILE_SIZE) return { success: false, error: "File too large (Max 4MB)" };
 
-    const backendToken = await getBackendToken();
-    if (!backendToken) return { success: false, error: "Unauthorized: Invalid Session" };
-
-
     const buffer = Buffer.from(await file.arrayBuffer());
     const mimeType = file.type;
     const fileName = file.name;
@@ -33,7 +28,6 @@ export async function uploadFileForIngestion(
     try {
         // Scenario A: Image (Vision)
         if (mimeType.startsWith("image/")) {
-            console.log(`[Upload] Processing image: ${fileName}`);
 
             // Convert to base64 for Gemini/OpenAI Vision
             const base64 = buffer.toString("base64");
@@ -65,22 +59,14 @@ export async function uploadFileForIngestion(
                 botType: "coach"
             };
 
-            const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-            const response = await fetch(`${backendUrl}/ai/chat`, {
+            const result = await apiClient(`/ai/chat`, {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${backendToken}`
-                },
                 body: JSON.stringify(payload)
             });
 
-            if (!response.ok) throw new Error("Vision extraction failed");
-            const result = await response.json();
-
             // Parse and Save
             const itemsToSave = parseAIJson(result.content);
-            await saveItems(workspaceId, itemsToSave, `upload-image-${fileName}`, backendToken);
+            await saveItems(workspaceId, itemsToSave, `upload-image-${fileName}`);
 
             revalidatePath("/dashboard/knowledge");
             return { success: true, count: itemsToSave.length, type: "image" };
@@ -88,7 +74,6 @@ export async function uploadFileForIngestion(
 
         // Scenario B: CSV (Text)
         if (mimeType === "text/csv" || fileName.endsWith(".csv")) {
-            console.log(`[Upload] Processing CSV: ${fileName}`);
             const text = buffer.toString("utf-8");
 
             // Robust CSV Parsing
@@ -99,7 +84,7 @@ export async function uploadFileForIngestion(
                 relax_quotes: true
             });
 
-            const extractedItems = records.map((record: any) => {
+            const extractedItems = (records as Record<string, string>[]).map((record) => {
                 // Heuristic mapping (case insensitive)
                 const keys = Object.keys(record);
                 const findKey = (search: string) => keys.find(k => k.toLowerCase().includes(search));
@@ -113,6 +98,8 @@ export async function uploadFileForIngestion(
                 if (priceKey) meta.price = record[priceKey];
                 if (urlKey) meta.url = record[urlKey];
 
+                if (!nameKey || !contentKey) return null;
+
                 return {
                     name: record[nameKey] || "Unknown Item",
                     category: "product",
@@ -121,7 +108,7 @@ export async function uploadFileForIngestion(
                 };
             });
 
-            await saveItems(workspaceId, extractedItems, `upload-csv-${fileName}`, backendToken);
+            await saveItems(workspaceId, extractedItems, `upload-csv-${fileName}`);
             revalidatePath("/dashboard/knowledge");
             return { success: true, count: extractedItems.length, type: "csv" };
         }
@@ -147,28 +134,17 @@ function parseAIJson(text: string) {
     }
 }
 
-async function saveItems(workspaceId: string, itemsList: any[], sourceId: string, backendToken: string) {
+async function saveItems(workspaceId: string, itemsList: any[], sourceId: string) {
     if (itemsList.length === 0) return;
 
     try {
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-        const response = await fetch(`${backendUrl}/ai/upload-batch`, {
+        await apiClient(`/ai/upload-batch`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${backendToken}`
-            },
             body: JSON.stringify({
                 sourceId,
                 items: itemsList
             })
         });
-
-        if (!response.ok) {
-            console.error("Batch upload failed to queue:", await response.text());
-        } else {
-            console.log(`[Upload] Successfully queued ${itemsList.length} items for background processing`);
-        }
     } catch (e) {
         console.error("Failed to enqueue batch upload to backend:", e);
     }

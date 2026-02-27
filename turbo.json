@@ -1,6 +1,6 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
-  "ui": "tui",
+  "ui": "stream",
   "tasks": {
     "build": {
       "dependsOn": [
@@ -22,7 +22,27 @@
         "NEXT_PUBLIC_API_URL",
         "INTERNAL_API_SECRET",
         "WEBHOOK_SECRET",
-        "WEBHOOK_VERIFY_TOKEN"
+        "WEBHOOK_VERIFY_TOKEN",
+        "REDIS_URL",
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "AUTH_SECRET",
+        "NEXTAUTH_SECRET",
+        "ENCRYPTION_KEY",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GEMINI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "META_ACCESS_TOKEN",
+        "META_PAGE_ID",
+        "TIKTOK_ACCESS_TOKEN",
+        "NODE_ENV",
+        "DIRECT_URL",
+        "CORS_ORIGIN",
+        "NEXT_PUBLIC_APP_URL",
+        "SUPABASE_JWT_SECRET"
       ]
     },
     "lint": {
@@ -45,7 +65,27 @@
         "NEXT_PUBLIC_API_URL",
         "INTERNAL_API_SECRET",
         "WEBHOOK_SECRET",
-        "WEBHOOK_VERIFY_TOKEN"
+        "WEBHOOK_VERIFY_TOKEN",
+        "REDIS_URL",
+        "REDIS_HOST",
+        "REDIS_PORT",
+        "AUTH_SECRET",
+        "NEXTAUTH_SECRET",
+        "ENCRYPTION_KEY",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GEMINI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "GROQ_API_KEY",
+        "META_ACCESS_TOKEN",
+        "META_PAGE_ID",
+        "TIKTOK_ACCESS_TOKEN",
+        "NODE_ENV",
+        "DIRECT_URL",
+        "CORS_ORIGIN",
+        "NEXT_PUBLIC_APP_URL",
+        "SUPABASE_JWT_SECRET"
       ]
     }
   }

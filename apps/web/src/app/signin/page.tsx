@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Bot, Loader2, AlertCircle } from "lucide-react";
-import { loginAction, loginWithGoogleAction } from "@/lib/auth-actions"; // We will update these
+import { loginAction } from "@/lib/auth-actions"; // We will update these
 import { createClient } from "@/utils/supabase/client";
 
 function SignInContent() {

@@ -2,6 +2,15 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Bot, Mail, MapPin, MessageSquare } from "lucide-react";
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+    title: "Contact Sales & Support",
+    description: "Get in touch with the EbizMate team for general inquiries, support, or enterprise sales and high-volume needs.",
+    alternates: {
+        canonical: "https://ebizmate.com/contact",
+    }
+};
 
 export default function ContactPage() {
     return (
@@ -74,6 +83,13 @@ export default function ContactPage() {
             </main>
 
             <footer className="py-8 border-t bg-muted/20 text-center text-sm text-muted-foreground">
+                <div className="flex justify-center gap-4 mb-4">
+                    <Link href="/privacy" className="hover:text-foreground">Privacy Policy</Link>
+                    <span>•</span>
+                    <Link href="/about" className="hover:text-foreground">About Us</Link>
+                    <span>•</span>
+                    <Link href="/contact" className="hover:text-foreground">Contact</Link>
+                </div>
                 <p>&copy; {new Date().getFullYear()} EbizMate Inc. All rights reserved.</p>
             </footer>
         </div>

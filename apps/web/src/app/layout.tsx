@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Toaster } from "sonner";
+import { Providers } from "@/components/providers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,8 +14,28 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EbizMate — Your AI Business Partner",
-  description: "Scale your E-commerce and Social presence with intelligent AI automation. EbizMate handles comments, DMs, and sales 24/7.",
+  metadataBase: new URL(process.env["NEXT_PUBLIC_APP_URL"] || "https://ebizmate.com"),
+  title: {
+    default: "EbizMate — The Autonomous Sales Team for Modern E-Business",
+    template: "%s | EbizMate",
+  },
+  description: "Give your brand a front-line AI Sales Rep and a back-office AI Coach. EbizMate handles Instagram and TikTok comments, DMs, and sales 24/7 with a Zero-Hallucination Pipeline.",
+  keywords: ["AI Customer Service", "TikTok Auto Reply", "Instagram DM Automation", "Visual Commerce", "AI Agent for E-commerce", "SaaS"],
+  authors: [{ name: "EbizMate Inc." }],
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "https://ebizmate.com",
+    title: "EbizMate — The Autonomous Sales Team for Modern E-Business",
+    description: "Give your brand a front-line AI Sales Rep and a back-office AI Coach. EbizMate handles Instagram and TikTok comments, DMs, and sales 24/7.",
+    siteName: "EbizMate",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "EbizMate — Multichannel AI Sales Reps",
+    description: "Stop dropping leads in DMs. Deploy EbizMate to auto-reply to comments, fetch products, and close sales perfectly aligned with your brand voice.",
+    creator: "@ebizmate",
+  },
 };
 
 export default function RootLayout({
@@ -29,8 +49,9 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
-        <Toaster />
+        <Providers />
       </body>
     </html>
   );
 }
+

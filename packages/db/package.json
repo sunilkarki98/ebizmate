@@ -2,17 +2,23 @@
   "name": "@ebizmate/db",
   "version": "1.0.0",
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsup",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -24,6 +30,7 @@
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.9",
+    "tsup": "^8.0.2",
     "typescript": "^5"
   }
 }

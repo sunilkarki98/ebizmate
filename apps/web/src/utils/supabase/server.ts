@@ -4,11 +4,11 @@ import { cookies } from 'next/headers'
 export async function createClient() {
     const cookieStore = await cookies()
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    const supabaseUrl = process.env["NEXT_PUBLIC_SUPABASE_URL"]
+    const supabaseAnonKey = process.env["NEXT_PUBLIC_SUPABASE_ANON_KEY"]
 
     if (!supabaseUrl || !supabaseAnonKey) {
-        if (process.env.NODE_ENV === 'development') {
+        if (process.env['NODE_ENV'] === 'development') {
             console.warn('Supabase credentials missing. Supabase auth will be disabled.')
         }
         return null

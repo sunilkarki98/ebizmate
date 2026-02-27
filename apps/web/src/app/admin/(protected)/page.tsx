@@ -28,9 +28,9 @@ export default async function AdminDashboardPage() {
                         {stats.health.db ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
                         <span className="text-sm font-medium flex items-center gap-1"><Database className="h-3 w-3" /> Database</span>
                     </div>
-                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${stats.health.redis ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600" : "bg-orange-500/10 border-orange-500/20 text-orange-600"}`}>
-                        {stats.health.redis ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                        <span className="text-sm font-medium flex items-center gap-1"><Server className="h-3 w-3" /> Redis</span>
+                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${stats.health.dragonfly ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600" : "bg-orange-500/10 border-orange-500/20 text-orange-600"}`}>
+                        {stats.health.dragonfly ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                        <span className="text-sm font-medium flex items-center gap-1"><Server className="h-3 w-3" /> Dragonfly</span>
                     </div>
                     <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${stats.health.ai ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600" : "bg-red-500/10 border-red-500/20 text-red-600"}`}>
                         {stats.health.ai ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}

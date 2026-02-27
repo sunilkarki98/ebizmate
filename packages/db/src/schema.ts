@@ -85,6 +85,7 @@ export const workspaces = pgTable("workspaces", {
 
     // Admin Controls
     allowGlobalAi: boolean("allowGlobalAi").default(true), // If false, user must provide their own key
+    aiBlocked: boolean("aiBlocked").default(false), // Hard kill switch — blocks ALL AI including BYOK
 
     // Plan & Usage Limits
     plan: text("plan", { enum: ["free", "paid"] }).default("free"),
@@ -114,6 +115,9 @@ export const items = pgTable("items", {
     category: text("category").default("general"), // e.g., "product", "faq", "policy", "general"
 
     meta: json("meta"), // Price, Offer codes, extra structured data
+    images: json("images").$type<string[]>(), // Array of image URLs for Visual Commerce Carousels
+    url: text("url"), // Optional direct product link 
+    inventoryCount: integer("inventoryCount").default(1), // Real-time stock for cart guardrails
     isVerified: boolean("isVerified").default(true),
     relatedItemIds: json("relatedItemIds"), // e.g. ["id1", "id2"]
 
@@ -214,6 +218,18 @@ export const customers = pgTable("customers", {
     conversationState: text("conversationState").default("IDLE"), // e.g., "AWAITING_ORDER_ID"
     conversationContext: json("conversationContext"), // Store temp data for the flow
 
+    // Long-Term AI Memory
+    preferencesSummary: text("preferencesSummary"), // Constant async summarization of preferences
+
+    // Visual Commerce & Abandonment (Epic 7 & 8)
+    lastCarouselSentAt: timestamp("lastCarouselSentAt"),
+    abandonmentStatus: text("abandonmentStatus", { enum: ["NONE", "PENDING", "FOLLOWED_UP", "DROPPED"] }).default("NONE"),
+    lastPurchaseAt: timestamp("lastPurchaseAt"), // For smart-notification anti-spam filtering
+
+    // Inbox UI Denormalizations
+    latestMessagePreview: text("latestMessagePreview"),
+    needsReviewCount: integer("needsReviewCount").default(0),
+
     createdAt: timestamp("createdAt").defaultNow(),
     updatedAt: timestamp("updatedAt").defaultNow(),
 }, (table) => {
@@ -247,6 +263,7 @@ export const aiSettings = pgTable("ai_settings", {
     // Gemini Config
     geminiApiKey: text("geminiApiKey"), // Encrypted at rest
     geminiModel: text("geminiModel").default("gemini-2.0-flash"),
+    geminiEmbeddingModel: text("geminiEmbeddingModel").default("gemini-embedding-001"),
 
     // OpenRouter Config
     openrouterApiKey: text("openrouterApiKey"), // Encrypted at rest
@@ -316,6 +333,33 @@ export const feedbackQueue = pgTable("feedback_queue", {
     workspaceStatusIdx: index("feedback_queue_workspace_status_idx").on(table.workspaceId, table.status),
 }));
 
+// --- Clarification Tickets (AI Orchestrator Escalation) ---
+export const clarificationTickets = pgTable("clarification_tickets", {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspaceId")
+        .notNull()
+        .references(() => workspaces.id, { onDelete: "cascade" }),
+    interactionId: text("interactionId")
+        .references(() => interactions.id, { onDelete: "set null" }),
+    customerId: text("customerId")
+        .references(() => customers.id, { onDelete: "set null" }),
+
+    customerMessage: text("customerMessage").notNull(),
+    detectedIntent: text("detectedIntent"),
+    generatedQuestion: text("generatedQuestion").notNull(),
+
+    sellerReply: text("sellerReply"),
+    extractedKnowledge: json("extractedKnowledge"),
+
+    status: text("status", { enum: ["pending", "answered", "resolved"] }).default("pending"),
+
+    createdAt: timestamp("createdAt").defaultNow(),
+    resolvedAt: timestamp("resolvedAt"),
+}, (table) => ({
+    workspaceStatusIdx: index("clarification_tickets_workspace_status_idx").on(table.workspaceId, table.status),
+    interactionIdx: index("clarification_tickets_interaction_idx").on(table.interactionId),
+}));
+
 // --- Audit Logs ---
 export const auditLogs = pgTable("audit_logs", {
     id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -333,6 +377,61 @@ export const auditLogs = pgTable("audit_logs", {
 }));
 
 
+// --- Orders (Customer Orders / Bookings) ---
+export const orders = pgTable("orders", {
+    id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+    workspaceId: text("workspaceId")
+        .notNull()
+        .references(() => workspaces.id, { onDelete: "cascade" }),
+    customerId: text("customerId")
+        .references(() => customers.id, { onDelete: "set null" }),
+    interactionId: text("interactionId")
+        .references(() => interactions.id, { onDelete: "set null" }),
+
+    // Order Details
+    orderItems: json("orderItems").$type<Array<{
+        name: string;
+        quantity: number;
+        unitPrice?: number;
+        notes?: string;
+    }>>(),
+    totalAmount: real("totalAmount"),
+    currency: text("currency").default("NPR"),
+
+    // Customer Info (denormalized for quick access)
+    customerName: text("customerName"),
+    customerPlatformId: text("customerPlatformId"),
+    customerMessage: text("customerMessage"), // Original message that triggered the order
+
+    // Status lifecycle: pending → negotiating → confirmed/rejected → completed/cancelled
+    status: text("status", {
+        enum: ["pending", "negotiating", "confirmed", "rejected", "completed", "cancelled"]
+    }).default("pending"),
+
+    // Collection details (from multi-turn flows)
+    serviceType: text("serviceType"),        // e.g. "Hair coloring", "Consultation"
+    preferredTime: text("preferredTime"),     // e.g. "Tomorrow 2pm", "After 3pm"
+    phoneNumber: text("phoneNumber"),         // For call requests
+
+    // WIMO Delivery Tracking
+    shippingStatus: text("shippingStatus", { enum: ["processing", "shipped", "delivered"] }).default("processing"),
+    trackingUrl: text("trackingUrl"),
+
+    // Notes & Actions
+    customerNote: text("customerNote"),
+    sellerNote: text("sellerNote"),
+    sellerProposal: text("sellerProposal"), // Used when status is 'negotiating'
+
+    // Timestamps
+    createdAt: timestamp("createdAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow(),
+    confirmedAt: timestamp("confirmedAt"),
+    completedAt: timestamp("completedAt"),
+}, (table) => ({
+    workspaceStatusIdx: index("orders_workspace_status_idx").on(table.workspaceId, table.status),
+    customerIdx: index("orders_customer_idx").on(table.customerId),
+}));
+
 // ==========================================
 // RELATIONS (Defined at the end to avoid Temporal Dead Zone issues)
 // ==========================================
@@ -346,6 +445,7 @@ export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
     posts: many(posts),
     interactions: many(interactions),
     customers: many(customers),
+    orders: many(orders),
     aiSettings: one(aiSettings),
 }));
 
@@ -385,6 +485,22 @@ export const customersRelations = relations(customers, ({ one, many }) => ({
         references: [workspaces.id],
     }),
     interactions: many(interactions),
+    orders: many(orders),
+}));
+
+export const ordersRelations = relations(orders, ({ one }) => ({
+    workspace: one(workspaces, {
+        fields: [orders.workspaceId],
+        references: [workspaces.id],
+    }),
+    customer: one(customers, {
+        fields: [orders.customerId],
+        references: [customers.id],
+    }),
+    interaction: one(interactions, {
+        fields: [orders.interactionId],
+        references: [interactions.id],
+    }),
 }));
 
 export const aiSettingsRelations = relations(aiSettings, ({ one }) => ({

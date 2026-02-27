@@ -19,4 +19,14 @@ export class MockClient implements PlatformClient {
             externalId: `mock-msg-${Date.now()}`,
         };
     }
+
+    async fetchRecentPosts() {
+        console.log(`[Mock] Mocking fetch for recent posts`);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        return Array.from({ length: 5 }).map((_, i) => ({
+            id: `mock-post-${Date.now()}-${i}`,
+            caption: `Mock Generic Post ${i + 1}: Featuring our bestselling widget priced at $${(i + 1) * 20}.`,
+            createdAt: new Date(Date.now() - i * 86400000)
+        }));
+    }
 }

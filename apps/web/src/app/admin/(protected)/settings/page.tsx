@@ -3,14 +3,10 @@
 import { useEffect, useState, useTransition } from "react";
 import { getAISettingsAction, updateAISettingsAction, testProviderAction, fetchAvailableModelsAction, getUsageStatsAction } from "@/lib/ai-settings-actions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Bot, Settings2, Activity, CheckCircle, XCircle, Loader2, Save } from "lucide-react";
+import type { ProviderName } from "@ebizmate/contracts";
 
 import { ConnectionTab } from "./components/ConnectionTab";
 import { ParametersTab } from "./components/ParametersTab";
@@ -42,9 +38,9 @@ INSTRUCTIONS:
 `;
 
 export interface SettingsState {
-    coachProvider: string;
+    coachProvider: ProviderName;
     coachModel: string;
-    customerProvider: string;
+    customerProvider: ProviderName;
     customerModel: string;
     openaiApiKey: string;
     openaiApiKeySet: boolean;
@@ -59,9 +55,9 @@ export interface SettingsState {
     groqApiKey: string;
     groqApiKeySet: boolean;
     groqModel: string;
-    temperature: string;
+    temperature: number;
     maxTokens: number;
-    topP: string;
+    topP: number;
     systemPromptTemplate: string;
     rateLimitPerMinute: number;
     retryAttempts: number;
@@ -81,6 +77,8 @@ export default function SettingsPage() {
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle");
     const [connectionMessage, setConnectionMessage] = useState("");
+    const [isTesting, startTestTransition] = useTransition();
+    const [testResult, setTestResult] = useState<{ success: boolean; message: string; provider?: string; model?: string } | null>(null);
 
     useEffect(() => {
         loadSettings();
@@ -108,9 +106,9 @@ export default function SettingsPage() {
                 groqApiKey: "",
                 groqApiKeySet: data.groqApiKeySet,
                 groqModel: data.groqModel,
-                temperature: data.temperature,
+                temperature: parseFloat(data.temperature) || 0.7,
                 maxTokens: data.maxTokens,
-                topP: data.topP,
+                topP: parseFloat(data.topP) || 1.0,
                 systemPromptTemplate: data.systemPromptTemplate || "",
                 rateLimitPerMinute: data.rateLimitPerMinute,
                 retryAttempts: data.retryAttempts,
@@ -172,31 +170,51 @@ export default function SettingsPage() {
         });
     }
 
+    function handleTestConnection() {
+        setTestResult(null);
+        startTestTransition(async () => {
+            const result = await testProviderAction();
+            if (result.success) {
+                setTestResult({
+                    success: true,
+                    message: `Connection successfully established with ${result.provider} using ${result.model}. Response: ${result.response}`,
+                    provider: result.provider,
+                    model: result.model
+                });
+            } else {
+                setTestResult({
+                    success: false,
+                    message: result.error || "Connection test failed. Check your API credentials."
+                });
+            }
+        });
+    }
+
     function handleSave() {
         if (!settings) return;
         setSaveResult(null);
 
         startSaveTransition(async () => {
             const result = await updateAISettingsAction({
-                coachProvider: settings.coachProvider,
+                coachProvider: settings.coachProvider as any,
                 coachModel: settings.coachModel,
-                customerProvider: settings.customerProvider,
+                customerProvider: settings.customerProvider as any,
                 customerModel: settings.customerModel,
-                openaiApiKey: settings.openaiApiKey || undefined,
                 openaiModel: settings.openaiModel,
                 openaiEmbeddingModel: settings.openaiEmbeddingModel,
-                geminiApiKey: settings.geminiApiKey || undefined,
                 geminiModel: settings.geminiModel,
-                openrouterApiKey: settings.openrouterApiKey || undefined,
                 openrouterModel: settings.openrouterModel,
-                groqApiKey: settings.groqApiKey || undefined,
                 groqModel: settings.groqModel,
                 temperature: settings.temperature,
                 maxTokens: settings.maxTokens,
                 topP: settings.topP,
-                systemPromptTemplate: settings.systemPromptTemplate || null,
                 rateLimitPerMinute: settings.rateLimitPerMinute,
                 retryAttempts: settings.retryAttempts,
+                ...(settings.openaiApiKey ? { openaiApiKey: settings.openaiApiKey } : {}),
+                ...(settings.geminiApiKey ? { geminiApiKey: settings.geminiApiKey } : {}),
+                ...(settings.openrouterApiKey ? { openrouterApiKey: settings.openrouterApiKey } : {}),
+                ...(settings.groqApiKey ? { groqApiKey: settings.groqApiKey } : {}),
+                ...(settings.systemPromptTemplate ? { systemPromptTemplate: settings.systemPromptTemplate } : {}),
             });
 
             if (result.error) {
@@ -267,6 +285,10 @@ export default function SettingsPage() {
                             handleConnect={handleConnect}
                             isConnecting={isConnecting}
                             availableModels={availableModels}
+                            handleTestConnection={handleTestConnection}
+                            testResult={testResult}
+                            isTesting={isTesting}
+                            clearTestResult={() => setTestResult(null)}
                         />
                     </TabsContent>
 

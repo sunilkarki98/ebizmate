@@ -1,0 +1,31 @@
+{
+    "name": "@ebizmate/jobs",
+    "version": "1.0.0",
+    "type": "module",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.cjs"
+        }
+    },
+    "scripts": {
+        "build": "tsup"
+    },
+    "dependencies": {
+        "@ebizmate/contracts": "*",
+        "@ebizmate/db": "*",
+        "@ebizmate/domain": "*",
+        "@ebizmate/shared": "*",
+        "bullmq": "^5.69.3",
+        "ioredis": "^5.9.3"
+    },
+    "devDependencies": {
+        "@swc/core": "^1.15.13",
+        "tsup": "^8.0.2",
+        "typescript": "^5"
+    }
+}

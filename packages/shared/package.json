@@ -2,20 +2,30 @@
     "name": "@ebizmate/shared",
     "version": "1.0.0",
     "type": "module",
-    "main": "./dist/index.js",
+    "main": "./dist/index.cjs",
+    "module": "./dist/index.js",
     "types": "./dist/index.d.ts",
     "exports": {
         ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.js",
-            "require": "./dist/index.cjs"
+            "import": {
+                "types": "./dist/index.d.ts",
+                "default": "./dist/index.js"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            }
         }
     },
     "scripts": {
-        "build": "tsc"
+        "build": "tsup"
     },
     "dependencies": {
-        "@ebizmate/db": "^1.0.0",
+        "@ebizmate/db": "*",
         "drizzle-orm": "^0.45.1"
+    },
+    "devDependencies": {
+        "tsup": "^8.0.2",
+        "typescript": "^5"
     }
 }

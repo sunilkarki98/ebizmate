@@ -1,6 +1,6 @@
 "use server";
 
-import { getBackendToken } from "@/lib/auth";
+import { apiClient } from "@/lib/api-client";
 
 export interface SystemNotification {
     id: string;
@@ -20,20 +20,9 @@ export async function getNotificationsAction(limit = 20): Promise<{
     notifications: SystemNotification[];
     unreadCount: number;
 }> {
-    const backendToken = await getBackendToken();
-    if (!backendToken) return { notifications: [], unreadCount: 0 };
-
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
     try {
-        const response = await fetch(`${backendUrl}/notifications?limit=${limit}`, {
-            headers: {
-                "Authorization": `Bearer ${backendToken}`
-            }
-        });
-        if (!response.ok) return { notifications: [], unreadCount: 0 };
-        return await response.json();
-    } catch (e) {
+        return await apiClient(`/notifications?limit=${limit}`);
+    } catch {
         return { notifications: [], unreadCount: 0 };
     }
 }

@@ -6,11 +6,15 @@
       "DOM",
       "DOM.Iterable"
     ],
-    "allowJs": true,
+    "allowJs": false,
+    "checkJs": false,
     "skipLibCheck": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "ESNext",
@@ -21,41 +25,37 @@
     "incremental": true,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
     "baseUrl": ".",
     "paths": {
       "@/*": [
         "./src/*"
       ],
-      "@/db/*": [
+      "@db/*": [
         "../packages/db/src/*"
       ],
-      "@ebizmate/db": [
-        "../packages/db/src"
-      ],
-      "@ebizmate/db/*": [
-        "../packages/db/src/*"
-      ],
-      "@ebizmate/shared": [
-        "../packages/shared/src"
-      ],
-      "@ebizmate/shared/*": [
+      "@shared/*": [
         "../packages/shared/src/*"
+      ],
+      "@ebizmate/ui/*": [
+        "../packages/ui/src/*"
       ]
-    }
+    },
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts",
+    ".next/dev/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next"
   ]
 }

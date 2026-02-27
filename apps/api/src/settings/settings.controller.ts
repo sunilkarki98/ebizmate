@@ -1,9 +1,7 @@
 import { Controller, Put, Get, Body, UseGuards, Req } from '@nestjs/common';
 import { SettingsService } from './settings.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { UpdateIdentityDto } from './dto/update-identity.dto';
-import { UpdateAiSettingsDto } from './dto/update-ai-settings.dto';
-import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdateIdentityDto, UpdateAiSettingsDto, UpdateProfileDto } from '@ebizmate/contracts';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @Controller('settings')

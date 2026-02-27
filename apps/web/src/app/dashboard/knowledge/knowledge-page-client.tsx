@@ -159,7 +159,7 @@ export default function KnowledgePageClient({
                                         onClick={() => setActiveCategory(activeCategory === key ? null : key)}
                                         className="h-7 text-xs gap-1"
                                     >
-                                        {config.emoji} {config.label} ({cnt})
+                                        {config["emoji"]} {config["label"]} ({cnt})
                                     </Button>
                                 );
                             })}
@@ -175,14 +175,14 @@ export default function KnowledgePageClient({
                     ) : (
                         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                             {filteredItems.map((item) => {
-                                const cat = categoryConfig[item.category || "general"] || categoryConfig.general;
+                                const cat = categoryConfig[item.category || "general"] || categoryConfig["general"]!;
                                 return (
                                     <Card key={item.id} className="group relative hover:shadow-md transition-shadow">
                                         <CardContent className="p-4">
                                             {/* Category + Actions */}
                                             <div className="flex items-start justify-between mb-2">
-                                                <Badge variant="secondary" className={`text-[10px] ${cat.color}`}>
-                                                    {cat.emoji} {cat.label}
+                                                <Badge variant="secondary" className={`text-[10px] ${cat["color"]}`}>
+                                                    {cat["emoji"]} {cat["label"]}
                                                 </Badge>
                                                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <Button

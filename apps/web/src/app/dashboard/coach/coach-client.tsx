@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Send, User, Bot, AlertTriangle } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Send, User, Bot, Sparkles, AlertTriangle } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface Message {
     id: string;
@@ -17,9 +17,11 @@ interface Message {
 
 interface CoachClientProps {
     initialMessages: Message[];
+    userImage?: string | null;
+    userName?: string | null;
 }
 
-export default function CoachClient({ initialMessages }: CoachClientProps) {
+export default function CoachClient({ initialMessages, userImage, userName }: CoachClientProps) {
     const [input, setInput] = useState("");
     const [messages, setMessages] = useState<Message[]>(initialMessages);
     const [isPending, startTransition] = useTransition();
@@ -44,18 +46,25 @@ export default function CoachClient({ initialMessages }: CoachClientProps) {
     };
 
     return (
-        <div className="container mx-auto p-4 lg:p-6 h-[calc(100vh-4rem)] max-w-[1600px]">
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full">
+        <div className="relative container mx-auto p-4 lg:p-6 h-[calc(100vh-4rem)] max-w-[1600px] overflow-hidden z-0">
+            {/* Decorative background gradients */}
+            <div className="absolute top-10 -left-10 w-96 h-96 bg-primary/20 rounded-full mix-blend-multiply filter blur-[128px] opacity-50 animate-blob pointer-events-none" />
+            <div className="absolute top-10 -right-10 w-96 h-96 bg-purple-500/20 rounded-full mix-blend-multiply filter blur-[128px] opacity-50 animate-blob animation-delay-2000 pointer-events-none" />
+            <div className="absolute -bottom-20 left-1/3 w-96 h-96 bg-blue-500/20 rounded-full mix-blend-multiply filter blur-[128px] opacity-50 animate-blob animation-delay-4000 pointer-events-none" />
+
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-full relative z-10">
 
                 {/* LEFT COLUMN: Main Chat Interface (3/4 width) */}
-                <Card className="lg:col-span-3 flex flex-col shadow-xl border-primary/10 bg-background/60 backdrop-blur-md overflow-hidden relative">
-                    <CardHeader className="border-b bg-muted/30 pb-4 shrink-0">
-                        <div className="flex items-center gap-3">
+                <Card className="lg:col-span-3 flex flex-col shadow-2xl border border-primary/20 bg-background/40 backdrop-blur-2xl overflow-hidden relative rounded-2xl">
+                    <CardHeader className="border-b border-border/50 bg-background/60 backdrop-blur-md pb-4 shrink-0 z-10">
+                        <div className="flex items-center gap-4">
                             <div className="relative">
-                                <Avatar className="h-12 w-12 border-2 border-primary/20 shadow-sm">
-                                    <AvatarFallback className="bg-primary/10 text-primary"><Bot size={24} /></AvatarFallback>
+                                <Avatar className="h-14 w-14 border border-primary/30 shadow-lg shadow-primary/20 overflow-visible relative">
+                                    <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-primary to-purple-500 opacity-20 blur-md pointer-events-none" />
+                                    <AvatarImage src="/dashboard/bot-avatar.png" alt="AI Coach" className="relative z-10 rounded-full object-cover" />
+                                    <AvatarFallback className="bg-gradient-to-tr from-primary/10 to-purple-500/10 text-primary relative z-10"><Sparkles size={28} /></AvatarFallback>
                                 </Avatar>
-                                <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-background rounded-full"></span>
+                                <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 border-2 border-background rounded-full shadow-sm z-20"></span>
                             </div>
                             <div>
                                 <CardTitle className="text-xl flex items-center gap-2">
@@ -68,21 +77,22 @@ export default function CoachClient({ initialMessages }: CoachClientProps) {
                     </CardHeader>
 
                     <CardContent className="flex-1 p-0 overflow-hidden relative bg-gradient-to-b from-background to-muted/20">
-                        <ScrollArea className="h-full p-4 md:p-6">
+                        <ScrollArea className="h-full p-4 md:p-8">
                             <div className="space-y-6">
                                 {messages.map((m) => (
-                                    <div key={m.id} className={`flex gap-4 ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
-                                        <Avatar className={`h-9 w-9 shrink-0 ${m.role === "coach" ? "bg-primary/10" : "bg-muted"}`}>
-                                            <AvatarFallback>{m.role === "coach" ? <Bot size={18} /> : <User size={18} />}</AvatarFallback>
+                                    <div key={m.id} className={`flex gap-4 group ${m.role === "user" ? "flex-row-reverse" : "flex-row"}`}>
+                                        <Avatar className={`h-10 w-10 shrink-0 shadow-sm ${m.role === "coach" ? "bg-gradient-to-br from-primary/20 to-purple-500/20 border border-primary/20" : "bg-gradient-to-br from-blue-500 to-cyan-500 text-white"}`}>
+                                            {m.role === "user" && userImage && <AvatarImage src={userImage} alt={userName || "User"} />}
+                                            <AvatarFallback className="bg-transparent">{m.role === "coach" ? <Sparkles size={20} className="text-primary" /> : <User size={20} className="text-white" />}</AvatarFallback>
                                         </Avatar>
-                                        <div className={`flex flex-col gap-1 max-w-[80%] ${m.role === "user" ? "items-end" : "items-start"}`}>
-                                            <div className={`rounded-2xl px-5 py-3 text-sm shadow-sm ${m.role === "user"
-                                                ? "bg-primary text-primary-foreground rounded-tr-none"
-                                                : "bg-card border text-card-foreground rounded-tl-none"
+                                        <div className={`flex flex-col gap-1 max-w-[85%] relative ${m.role === "user" ? "items-end" : "items-start"}`}>
+                                            <div className={`rounded-2xl px-5 py-3.5 text-sm shadow-sm leading-relaxed ${m.role === "user"
+                                                ? "bg-gradient-to-br from-primary to-primary/90 text-primary-foreground rounded-tr-sm shadow-primary/20"
+                                                : "bg-background/80 backdrop-blur-lg border border-border/50 text-foreground rounded-tl-sm"
                                                 }`}>
                                                 {m.content}
                                             </div>
-                                            <span className="text-[10px] text-muted-foreground px-1">
+                                            <span className="text-[10px] text-muted-foreground px-2 opacity-0 group-hover:opacity-100 transition-opacity absolute -bottom-5">
                                                 {!isNaN(parseInt(m.id))
                                                     ? new Date(parseInt(m.id)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                                                     : "Just now"}

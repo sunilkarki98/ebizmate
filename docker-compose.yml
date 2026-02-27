@@ -1,12 +1,13 @@
 services:
-  # --- Redis (BullMQ queues, rate limiting, caching) ---
-  redis:
-    image: redis:7-alpine
-    container_name: ebizmate-redis
+  # --- Dragonfly (Drop-in Redis Replacement) ---
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly
+    container_name: ebizmate-dragonfly
+    command: [ "--proactor_threads=2", "--maxmemory=1gb", "--dir=/data", "--dbfilename=dump" ]
     ports:
       - "6379:6379"
     volumes:
-      - redis_data:/data
+      - dragonfly_data:/data
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
@@ -14,4 +15,4 @@ services:
       retries: 5
 
 volumes:
-  redis_data:
+  dragonfly_data:

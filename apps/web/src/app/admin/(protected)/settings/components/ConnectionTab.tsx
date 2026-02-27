@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Bot, Key, Loader2, RotateCcw, Plug } from "lucide-react";
+import { Bot, Key, Loader2, RotateCcw, Plug, CheckCircle, XCircle, X, PlayCircle, Activity, ShieldCheck } from "lucide-react";
 import { SettingsState } from "../page";
 
 export function ConnectionTab({
@@ -14,7 +14,11 @@ export function ConnectionTab({
     setSelectedProvider,
     handleConnect,
     isConnecting,
-    availableModels
+    availableModels,
+    handleTestConnection,
+    testResult,
+    isTesting,
+    clearTestResult,
 }: {
     settings: any;
     update: (field: keyof SettingsState, value: any) => void;
@@ -23,6 +27,10 @@ export function ConnectionTab({
     handleConnect: () => void;
     isConnecting: boolean;
     availableModels: string[];
+    handleTestConnection: () => void;
+    testResult: { success: boolean; message: string; provider?: string; model?: string } | null;
+    isTesting: boolean;
+    clearTestResult: () => void;
 }) {
     return (
         <div className="space-y-6">
@@ -164,6 +172,37 @@ export function ConnectionTab({
                 </div>
             </div>
 
+            {testResult && (
+                <div className={`p-4 rounded-lg border flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300 ${testResult.success ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-400"}`}>
+                    <div className={`p-2 rounded-full ${testResult.success ? "bg-emerald-500/20" : "bg-red-500/20"}`}>
+                        {testResult.success ? <CheckCircle className="h-5 w-5" /> : <XCircle className="h-5 w-5" />}
+                    </div>
+                    <div className="flex-1 space-y-1">
+                        <p className="text-sm font-semibold">{testResult.success ? "System Verified" : "Verification Failed"}</p>
+                        <p className="text-sm opacity-90">{testResult.message}</p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => clearTestResult()} className="h-8 w-8">
+                        <X className="h-4 w-4" />
+                    </Button>
+                </div>
+            )}
+
+            <div className="flex items-center justify-between p-4 bg-muted/30 rounded-lg border border-dashed border-muted-foreground/20">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-background rounded-full border shadow-sm">
+                        <Activity className="h-4 w-4 text-primary" />
+                    </div>
+                    <div>
+                        <p className="text-sm font-medium">Test Live Connection</p>
+                        <p className="text-xs text-muted-foreground">Verify the current global configuration works end-to-end.</p>
+                    </div>
+                </div>
+                <Button variant="outline" onClick={handleTestConnection} disabled={isTesting} className="gap-2 bg-background">
+                    {isTesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
+                    Test Current Config
+                </Button>
+            </div>
+
             <Card>
                 <CardHeader>
                     <CardTitle className="text-lg font-semibold flex items-center gap-2">
@@ -175,28 +214,48 @@ export function ConnectionTab({
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
                             <Label>OpenAI API Key</Label>
-                            {settings.openaiApiKeySet && <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50">Active</Badge>}
+                            <div className="flex items-center gap-2">
+                                {settings.openaiApiKeySet && <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50">Active</Badge>}
+                                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1" onClick={() => { setSelectedProvider("openai"); handleConnect(); }}>
+                                    <ShieldCheck className="h-3 w-3" /> Verify
+                                </Button>
+                            </div>
                         </div>
                         <Input type="password" placeholder={settings.openaiApiKeySet ? "Key Set (Enter new to replace)" : "sk-..."} value={settings.openaiApiKey} onChange={(e) => update("openaiApiKey", e.target.value)} />
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
                             <Label>Google Gemini API Key</Label>
-                            {settings.geminiApiKeySet && <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50">Active</Badge>}
+                            <div className="flex items-center gap-2">
+                                {settings.geminiApiKeySet && <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50">Active</Badge>}
+                                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1" onClick={() => { setSelectedProvider("gemini"); handleConnect(); }}>
+                                    <ShieldCheck className="h-3 w-3" /> Verify
+                                </Button>
+                            </div>
                         </div>
                         <Input type="password" placeholder={settings.geminiApiKeySet ? "Key Set (Enter new to replace)" : "AIzaSy..."} value={settings.geminiApiKey} onChange={(e) => update("geminiApiKey", e.target.value)} />
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
                             <Label>OpenRouter API Key</Label>
-                            {settings.openrouterApiKeySet && <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50">Active</Badge>}
+                            <div className="flex items-center gap-2">
+                                {settings.openrouterApiKeySet && <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50">Active</Badge>}
+                                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1" onClick={() => { setSelectedProvider("openrouter"); handleConnect(); }}>
+                                    <ShieldCheck className="h-3 w-3" /> Verify
+                                </Button>
+                            </div>
                         </div>
                         <Input type="password" placeholder={settings.openrouterApiKeySet ? "Key Set (Enter new to replace)" : "sk-or-v1-..."} value={settings.openrouterApiKey} onChange={(e) => update("openrouterApiKey", e.target.value)} />
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
                             <Label>Groq API Key</Label>
-                            {settings.groqApiKeySet && <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50">Active</Badge>}
+                            <div className="flex items-center gap-2">
+                                {settings.groqApiKeySet && <Badge variant="outline" className="text-emerald-600 border-emerald-200 bg-emerald-50">Active</Badge>}
+                                <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1" onClick={() => { setSelectedProvider("groq"); handleConnect(); }}>
+                                    <ShieldCheck className="h-3 w-3" /> Verify
+                                </Button>
+                            </div>
                         </div>
                         <Input type="password" placeholder={settings.groqApiKeySet ? "Key Set (Enter new to replace)" : "gsk_..."} value={settings.groqApiKey} onChange={(e) => update("groqApiKey", e.target.value)} />
                     </div>

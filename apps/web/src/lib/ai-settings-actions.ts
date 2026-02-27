@@ -1,88 +1,36 @@
 "use server";
 
-import { auth, getBackendToken } from "@/lib/auth";
+import { auth } from "@/lib/auth";
+import { apiClient, requireAdmin } from "@/lib/api-client";
 import { revalidatePath } from "next/cache";
+import { aiSettingsSchema, fetchModelsSchema } from "@/lib/validation";
+import { z } from "zod";
 
-// --- Helper: Require admin role ---
-
-async function requireAdmin() {
-    const session = await auth('admin');
-    if (!session?.user?.id) throw new Error("Unauthorized");
-
-    const role = (session.user as { role?: string }).role;
-    if (role !== "admin") throw new Error("Forbidden: Admin access required");
-
-    return session.user;
-}
+type AISettingsData = z.infer<typeof aiSettingsSchema>;
 
 // --- Get AI Settings (masked keys for frontend) ---
 
 export async function getAISettingsAction() {
     await requireAdmin();
 
-    const backendToken = await getBackendToken();
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
     try {
-        const response = await fetch(`${backendUrl}/admin/ai-settings`, {
-            headers: {
-                "Authorization": `Bearer ${backendToken}`
-            }
-        });
-
-        if (!response.ok) throw new Error("Failed to fetch settings");
-        return await response.json();
+        return await apiClient(`/admin/ai-settings`);
     } catch {
-        // Return defaults if backend is unreachable
-        return {
-            coachProvider: "openai",
-            coachModel: "gpt-4o-mini",
-            customerProvider: "groq",
-            customerModel: "llama-3.3-70b-versatile",
-            openaiApiKeyMasked: "",
-            openaiApiKeySet: false,
-            openaiModel: "gpt-4o-mini",
-            openaiEmbeddingModel: "text-embedding-3-small",
-            geminiApiKeySet: false,
-            geminiModel: "gemini-2.0-flash",
-            openrouterApiKeyMasked: "",
-            openrouterApiKeySet: false,
-            openrouterModel: "meta-llama/llama-3.3-70b-instruct",
-            groqApiKeyMasked: "",
-            groqApiKeySet: false,
-            groqModel: "llama-3.3-70b-versatile",
-            temperature: "0.7",
-            maxTokens: 1024,
-            topP: "1.0",
-            systemPromptTemplate: null,
-            rateLimitPerMinute: 60,
-            retryAttempts: 3,
-        };
+        return null; // Return null to indicate failure, let frontend handle it
     }
 }
 
 // --- Update AI Settings (admin only) ---
 
-export async function updateAISettingsAction(data: any) {
+export async function updateAISettingsAction(data: AISettingsData) {
+    const validated = aiSettingsSchema.parse(data);
     await requireAdmin();
 
-    const backendToken = await getBackendToken();
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
     try {
-        const response = await fetch(`${backendUrl}/admin/ai-settings`, {
+        await apiClient(`/admin/ai-settings`, {
             method: "PUT",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${backendToken}`
-            },
-            body: JSON.stringify(data)
+            body: JSON.stringify(validated)
         });
-
-        if (!response.ok) {
-            const err = await response.json();
-            return { error: err.message || "Failed to update settings" };
-        }
 
         revalidatePath("/dashboard/settings");
         return { success: true };
@@ -97,22 +45,9 @@ export async function testProviderAction() {
     await requireAdmin();
 
     try {
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-        const backendToken = await getBackendToken();
-        const response = await fetch(`${backendUrl}/ai/test-connection`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${backendToken}`
-            }
+        const data = await apiClient(`/ai/test-connection`, {
+            method: "POST"
         });
-
-        if (!response.ok) {
-            const err = await response.json();
-            throw new Error(err.message || "Failed to test connection");
-        }
-
-        const data = await response.json();
 
         return {
             success: true,
@@ -133,18 +68,8 @@ export async function testProviderAction() {
 export async function getUsageStatsAction() {
     await requireAdmin();
 
-    const backendToken = await getBackendToken();
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
     try {
-        const response = await fetch(`${backendUrl}/admin/usage-stats`, {
-            headers: {
-                "Authorization": `Bearer ${backendToken}`
-            }
-        });
-
-        if (!response.ok) throw new Error("Failed to fetch stats");
-        return await response.json();
+        return await apiClient(`/admin/usage-stats`);
     } catch {
         return {
             last7Days: [],
@@ -164,27 +89,14 @@ export async function isAdminAction(): Promise<boolean> {
 // --- Fetch Available Models (for UI Redesign) ---
 
 export async function fetchAvailableModelsAction(provider: string, apiKey: string) {
+    const validated = fetchModelsSchema.parse({ provider, apiKey });
     await requireAdmin();
 
-    const backendToken = await getBackendToken();
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
     try {
-        const response = await fetch(`${backendUrl}/admin/fetch-models`, {
+        return await apiClient(`/admin/fetch-models`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${backendToken}`
-            },
-            body: JSON.stringify({ provider, apiKey })
+            body: JSON.stringify(validated)
         });
-
-        if (!response.ok) {
-            const err = await response.json();
-            return { error: err.error || err.message || "Failed to fetch models" };
-        }
-
-        return await response.json();
     } catch (e: any) {
         return {
             success: false,

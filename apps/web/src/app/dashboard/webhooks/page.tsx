@@ -5,7 +5,7 @@ export default async function WebhooksPage() {
     const session = await auth();
     if (!session?.user?.id) return null;
 
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
     const backendToken = await getBackendToken();
 
     // 1. Fetch Workspace Info 

@@ -1,6 +1,7 @@
-import { Controller, Post, Get, Body, UseGuards, Req, Param, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Req, Param, ForbiddenException, HttpException, HttpStatus } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { WorkspacePolicyGuard } from '../common/guards/workspace-policy.guard';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 import {
     ProcessInteractionDto,
@@ -10,10 +11,10 @@ import {
     IngestPostDto,
     BatchIngestDto,
     TeachReplyDto,
-} from './dto';
+} from '@ebizmate/contracts';
 
 @Controller('ai')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, WorkspacePolicyGuard)
 export class AiController {
     constructor(private readonly aiService: AiService) { }
 
@@ -22,14 +23,7 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Body() dto: ProcessInteractionDto,
     ) {
-        try {
-            return await this.aiService.processInteraction(dto.interactionId);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.processInteraction(dto.interactionId);
     }
 
     @Post('embed')
@@ -37,14 +31,7 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Body() dto: GenerateEmbeddingDto,
     ) {
-        try {
-            return await this.aiService.generateEmbedding(req.user.userId, dto);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.generateEmbedding(req.user.userId, dto);
     }
 
     @Post('chat')
@@ -52,14 +39,7 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Body() dto: ChatDto,
     ) {
-        try {
-            return await this.aiService.chat(req.user.userId, dto);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.chat(req.user.userId, dto);
     }
 
     @Post('coach/chat')
@@ -69,60 +49,38 @@ export class AiController {
     ) {
         try {
             return await this.aiService.coachChat(req.user.userId, dto);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
+        } catch (error: any) {
+            const msg = error?.message || String(error);
+            // Map domain-level AI errors to proper HTTP status codes
+            if (msg.includes('AI_LIMIT_EXCEEDED') || msg.includes('AI_TRIAL_EXPIRED')) {
+                throw new HttpException(msg, HttpStatus.FORBIDDEN);
+            }
+            if (msg.includes('AI_ACCESS_DENIED')) {
+                throw new HttpException(msg, HttpStatus.FORBIDDEN);
+            }
+            console.error("[AiController] processCoachMessage Error:", error);
+            throw error;
         }
     }
 
     @Get('coach/history')
     async getCoachHistory(@Req() req: AuthenticatedRequest) {
-        try {
-            return await this.aiService.getCoachHistory(req.user.userId);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.getCoachHistory(req.user.userId);
     }
 
     @Get('customer/interactions')
     async getCustomerInteractions(@Req() req: AuthenticatedRequest) {
-        try {
-            return await this.aiService.getCustomerInteractions(req.user.userId);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.getCustomerInteractions(req.user.userId);
     }
 
     @Get('customer/all')
     async getCustomers(@Req() req: AuthenticatedRequest) {
-        try {
-            return await this.aiService.getCustomers(req.user.userId);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.getCustomers(req.user.userId);
     }
 
     @Get('customer/:id')
     async getCustomer(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
-        try {
-            return await this.aiService.getCustomer(req.user.userId, id);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.getCustomer(req.user.userId, id);
     }
 
     @Post('customer/:id/pause')
@@ -130,14 +88,7 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Param('id') id: string
     ) {
-        try {
-            return await this.aiService.setCustomerAiStatus(req.user.userId, id, true);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.setCustomerAiStatus(req.user.userId, id, true);
     }
 
     @Post('customer/:id/resume')
@@ -145,14 +96,7 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Param('id') id: string
     ) {
-        try {
-            return await this.aiService.setCustomerAiStatus(req.user.userId, id, false);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.setCustomerAiStatus(req.user.userId, id, false);
     }
 
     @Post('ingest')
@@ -160,14 +104,7 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Body() dto: IngestPostDto,
     ) {
-        try {
-            return await this.aiService.ingestPost(dto.postId);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.ingestPost(dto.postId);
     }
 
     @Post('upload-batch')
@@ -175,26 +112,12 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Body() dto: BatchIngestDto,
     ) {
-        try {
-            return await this.aiService.batchIngest(req.user.userId, dto);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.batchIngest(req.user.userId, dto);
     }
 
     @Post('test-connection')
     async testProviderConnection(@Req() req: AuthenticatedRequest) {
-        try {
-            return await this.aiService.testConnection();
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.testConnection();
     }
 
     @Post('teach-reply')
@@ -202,13 +125,7 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Body() dto: TeachReplyDto,
     ) {
-        try {
-            return await this.aiService.teachAndReply(req.user.userId, dto);
-        } catch (error) {
-            throw new HttpException(
-                error instanceof Error ? error.message : 'Internal Server Error',
-                HttpStatus.INTERNAL_SERVER_ERROR,
-            );
-        }
+        return this.aiService.teachAndReply(req.user.userId, dto);
     }
 }
+

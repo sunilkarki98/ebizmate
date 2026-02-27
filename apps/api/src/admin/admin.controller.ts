@@ -2,14 +2,16 @@ import { Controller, Get, Post, Put, Body, Param, Req, UseGuards } from '@nestjs
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AdminGuard } from '../auth/admin.guard';
+import { WorkspacePlanDto, ToggleAiPauseDto, FetchModelsDto, UpdateAiSettingsDto } from '@ebizmate/contracts';
+import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
     constructor(private readonly adminService: AdminService) { }
 
-    private getAdminId(req: any) {
-        return req.user.sub || req.user.id;
+    private getAdminId(req: AuthenticatedRequest) {
+        return req.user.sub || req.user.userId;
     }
 
     @Get('analytics')
@@ -23,7 +25,7 @@ export class AdminController {
     }
 
     @Put('users/:id/role')
-    async updateUserRole(@Req() req: any, @Param('id') userId: string, @Body('role') role: 'admin' | 'user') {
+    async updateUserRole(@Req() req: AuthenticatedRequest, @Param('id') userId: string, @Body('role') role: 'admin' | 'user') {
         const adminId = this.getAdminId(req);
         return this.adminService.updateUserRole(adminId, userId, role);
     }
@@ -34,15 +36,21 @@ export class AdminController {
     }
 
     @Put('workspaces/:id/global-ai')
-    async toggleGlobalAiAccess(@Req() req: any, @Param('id') workspaceId: string, @Body('allowed') allowed: boolean) {
+    async toggleGlobalAiAccess(@Req() req: AuthenticatedRequest, @Param('id') workspaceId: string, @Body('allowed') allowed: boolean) {
         const adminId = this.getAdminId(req);
         return this.adminService.toggleGlobalAiAccess(adminId, workspaceId, allowed);
     }
 
     @Put('workspaces/:id/plan')
-    async updateWorkspacePlan(@Req() req: any, @Param('id') workspaceId: string, @Body() data: any) {
+    async updateWorkspacePlan(@Req() req: AuthenticatedRequest, @Param('id') workspaceId: string, @Body() data: WorkspacePlanDto) {
         const adminId = this.getAdminId(req);
         return this.adminService.updateWorkspacePlan(adminId, workspaceId, data);
+    }
+
+    @Put('workspaces/:id/ai-block')
+    async toggleAiBlocked(@Req() req: AuthenticatedRequest, @Param('id') workspaceId: string, @Body('blocked') blocked: boolean) {
+        const adminId = this.getAdminId(req);
+        return this.adminService.toggleAiBlocked(adminId, workspaceId, blocked);
     }
 
     @Get('escalations')
@@ -51,7 +59,7 @@ export class AdminController {
     }
 
     @Post('escalations/:id/resolve')
-    async resolveEscalation(@Req() req: any, @Param('id') interactionId: string) {
+    async resolveEscalation(@Req() req: AuthenticatedRequest, @Param('id') interactionId: string) {
         const adminId = this.getAdminId(req);
         return this.adminService.resolveEscalation(adminId, interactionId);
     }
@@ -77,7 +85,7 @@ export class AdminController {
     }
 
     @Post('customers/pause')
-    async toggleAiPause(@Req() req: any, @Body() body: { workspaceId: string, platformId: string }) {
+    async toggleAiPause(@Req() req: AuthenticatedRequest, @Body() body: ToggleAiPauseDto) {
         const adminId = this.getAdminId(req);
         return this.adminService.toggleAiPause(adminId, body.workspaceId, body.platformId);
     }
@@ -88,7 +96,7 @@ export class AdminController {
     }
 
     @Put('ai-settings')
-    async updateAISettings(@Req() req: any, @Body() body: any) {
+    async updateAISettings(@Req() req: AuthenticatedRequest, @Body() body: UpdateAiSettingsDto) {
         const adminId = this.getAdminId(req);
         return this.adminService.updateAISettings(adminId, body);
     }
@@ -99,7 +107,7 @@ export class AdminController {
     }
 
     @Post('fetch-models')
-    async fetchAvailableModels(@Body() body: { provider: string, apiKey: string }) {
+    async fetchAvailableModels(@Body() body: FetchModelsDto) {
         return this.adminService.fetchAvailableModels(body.provider, body.apiKey);
     }
 }

@@ -1,26 +1,33 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { ConfigService } from '@nestjs/config';
 import { AiController } from './ai.controller';
 import { CustomerController } from './customer.controller';
 import { AiService } from './ai.service';
-import { AiProcessor } from './ai.processor';
+import { AiProcessor, ScheduledProcessor } from '@ebizmate/jobs';
+import { getDragonflyConfig } from '@ebizmate/shared';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
     imports: [
-        BullModule.forRootAsync({
-            inject: [ConfigService],
-            useFactory: (config: ConfigService) => ({
-                connection: {
-                    host: config.get<string>('REDIS_HOST', 'localhost'),
-                    port: config.get<number>('REDIS_PORT', 6379),
-                },
-            }),
+        BullModule.forRoot({
+            connection: getDragonflyConfig(),
         }),
-        BullModule.registerQueue({ name: 'ai' }),
+        BullModule.registerQueue({
+            name: 'ai',
+            defaultJobOptions: {
+                removeOnComplete: true, // Don't store successful jobs
+                removeOnFail: {
+                    age: 7 * 24 * 3600, // Hard purge failed jobs after 7 days
+                    count: 1000, // Maximum of 1000 failed jobs stored in RAM
+                },
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 5000 },
+            }
+        }),
+        NotificationsModule,
     ],
     controllers: [AiController, CustomerController],
-    providers: [AiService, AiProcessor],
+    providers: [AiService, AiProcessor, ScheduledProcessor],
     exports: [AiService],
 })
 export class AiModule { }

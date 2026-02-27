@@ -42,7 +42,7 @@ export function ParametersTab({
                                 max="2"
                                 step="0.1"
                                 value={settings.temperature}
-                                onChange={(e) => update("temperature", e.target.value)}
+                                onChange={(e) => update("temperature", parseFloat(e.target.value))}
                                 className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
                             />
                         </div>
@@ -64,7 +64,7 @@ export function ParametersTab({
                                 max="1"
                                 step="0.05"
                                 value={settings.topP}
-                                onChange={(e) => update("topP", e.target.value)}
+                                onChange={(e) => update("topP", parseFloat(e.target.value))}
                                 className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
                             />
                         </div>

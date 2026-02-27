@@ -7,7 +7,6 @@ import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
-
 import { createClient } from "@/utils/supabase/server";
 
 import { authConfig } from "@/lib/auth.config";
@@ -23,11 +22,11 @@ const nextAuthConfig: NextAuthConfig = {
     providers: [
         ...(process.env['GOOGLE_CLIENT_ID'] && process.env['GOOGLE_CLIENT_SECRET']
             ? [
-                  Google({
-                      clientId: process.env['GOOGLE_CLIENT_ID'],
-                      clientSecret: process.env['GOOGLE_CLIENT_SECRET'],
-                  }),
-              ]
+                Google({
+                    clientId: process.env['GOOGLE_CLIENT_ID'],
+                    clientSecret: process.env['GOOGLE_CLIENT_SECRET'],
+                }),
+            ]
             : []),
         Credentials({
             credentials: {
@@ -97,8 +96,8 @@ export async function auth(type: 'admin' | 'user' | 'any' = 'user') {
                     user: {
                         id: user.id,
                         email: user.email,
-                        name: user.user_metadata.full_name || user.email?.split('@')[0],
-                        image: user.user_metadata.avatar_url,
+                        name: user.user_metadata['full_name'] || user.email?.split('@')[0],
+                        image: user.user_metadata['avatar_url'],
                         role: "user",
                     },
                     expires: new Date(Date.now() + 3600 * 1000).toISOString(),

@@ -1,11 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
-import { getAIService } from './services/factory';
-import type { ChatDto, GenerateEmbeddingDto, CoachChatDto, BatchIngestDto, TeachReplyDto } from './dto';
-import { db, workspaces, coachConversations, interactions, customers, items } from '@ebizmate/db';
-import { eq, desc } from 'drizzle-orm';
-import { PlatformFactory, decrypt } from '@ebizmate/shared';
+import {
+    getAIService,
+    getCoachHistory,
+    getCustomerInteractions,
+    getCustomers,
+    getCustomer,
+    setCustomerAiStatus,
+    teachAndReply,
+    testConnection,
+    processCoachMessage,
+    getWorkspace
+} from '@ebizmate/domain';
+import type {
+    ChatDto,
+    GenerateEmbeddingDto,
+    CoachChatDto,
+    BatchIngestDto,
+    TeachReplyDto
+} from '@ebizmate/contracts';
 
 @Injectable()
 export class AiService {
@@ -19,109 +33,52 @@ export class AiService {
         return { success: true };
     }
 
-    async generateEmbedding(workspaceId: string, dto: GenerateEmbeddingDto) {
-        const ai = await getAIService(workspaceId, dto.botType);
+    async generateEmbedding(userId: string, dto: GenerateEmbeddingDto) {
+        const workspace = await getWorkspace(userId);
+        const ai = await getAIService(workspace.id, dto.botType);
         const result = await ai.embed(dto.input, dto.interactionId);
-
         return { success: true, embedding: result.embedding };
     }
 
-    async chat(workspaceId: string, dto: ChatDto) {
-        const ai = await getAIService(workspaceId, dto.botType);
+    async chat(userId: string, dto: ChatDto) {
+        const workspace = await getWorkspace(userId);
+        const ai = await getAIService(workspace.id, dto.botType);
         const result = await ai.chat({
             systemPrompt: dto.systemPrompt,
             userMessage: dto.userMessage,
             ...(dto.temperature !== undefined && { temperature: dto.temperature }),
         });
-
         return { success: true, content: result.content };
     }
 
-    async coachChat(workspaceId: string, dto: CoachChatDto): Promise<{ success: boolean; reply: string }> {
-        const { processCoachMessage } = await import('./coach/agent.js');
-        const reply = await processCoachMessage(workspaceId, dto.message, dto.history);
-
+    async coachChat(userId: string, dto: CoachChatDto): Promise<{ success: boolean; reply: string }> {
+        const workspace = await getWorkspace(userId);
+        const history = (dto.history ?? []).map(h => ({
+            role: h.role as 'user' | 'coach',
+            content: h.content as string,
+        }));
+        const reply = await processCoachMessage(workspace.id, dto.message, history);
         return { success: true, reply };
     }
 
     async getCoachHistory(userId: string) {
-        const userWorkspace = await db.query.workspaces.findFirst({
-            where: eq(workspaces.userId, userId)
-        });
-
-        if (!userWorkspace) return [];
-
-        const messages = await db.query.coachConversations.findMany({
-            where: eq(coachConversations.workspaceId, userWorkspace.id),
-            orderBy: [desc(coachConversations.createdAt)],
-            limit: 50,
-        });
-
-        return messages.reverse().map(m => ({
-            id: m.id,
-            role: m.role as "user" | "coach",
-            content: m.content,
-            createdAt: m.createdAt?.getTime() || Date.now()
-        }));
+        return getCoachHistory(userId);
     }
 
     async getCustomerInteractions(userId: string) {
-        const userWorkspace = await db.query.workspaces.findFirst({
-            where: eq(workspaces.userId, userId)
-        });
-
-        if (!userWorkspace) return [];
-
-        const logs = await db.query.interactions.findMany({
-            where: eq(interactions.workspaceId, userWorkspace.id),
-            orderBy: [desc(interactions.createdAt)],
-            limit: 50,
-            with: {
-                post: true,
-            },
-        });
-        return logs;
+        return getCustomerInteractions(userId);
     }
 
     async getCustomers(userId: string) {
-        const userWorkspace = await db.query.workspaces.findFirst({
-            where: eq(workspaces.userId, userId)
-        });
-
-        if (!userWorkspace) return [];
-
-        const customerList = await db.query.customers.findMany({
-            where: eq(customers.workspaceId, userWorkspace.id),
-            orderBy: [desc(customers.lastInteractionAt)],
-            limit: 50,
-        });
-
-        return customerList;
+        return getCustomers(userId);
     }
 
     async getCustomer(userId: string, customerId: string) {
-        const customer = await db.query.customers.findFirst({
-            where: eq(customers.id, customerId),
-            with: { workspace: true },
-        });
-
-        if (!customer) throw new Error("Customer not found");
-        if (customer.workspace.userId !== userId) throw new Error("Unauthorized workspace access");
-
-        return customer;
+        return getCustomer(userId, customerId);
     }
 
     async setCustomerAiStatus(userId: string, customerId: string, pause: boolean) {
-        const customer = await this.getCustomer(userId, customerId);
-
-        await db.update(customers)
-            .set({
-                aiPaused: pause,
-                conversationState: pause ? customer.conversationState : "IDLE"
-            })
-            .where(eq(customers.id, customerId));
-
-        return { success: true };
+        return setCustomerAiStatus(userId, customerId, pause);
     }
 
     async ingestPost(postId: string): Promise<{ success: boolean }> {
@@ -130,92 +87,27 @@ export class AiService {
         return { success: true };
     }
 
-    async batchIngest(workspaceId: string, dto: BatchIngestDto): Promise<{ success: boolean; queued: boolean }> {
+    async batchIngest(userId: string, dto: BatchIngestDto): Promise<{ success: boolean; queued: boolean }> {
+        const workspace = await getWorkspace(userId);
         await this.aiQueue.add('upload_batch', {
-            workspaceId,
+            workspaceId: workspace.id,
             sourceId: dto.sourceId,
             items: dto.items,
         });
-        this.logger.log(`Queued batch ingestion for workspace: ${workspaceId}`);
+        this.logger.log(`Queued batch ingestion for workspace: ${workspace.id}`);
         return { success: true, queued: true };
     }
 
     async testConnection() {
-        const ai = await getAIService('global', 'customer');
-        const result = await ai.chat({
-            systemPrompt: 'You are a helpful assistant. Reply with exactly: CONNECTION_OK',
-            userMessage: 'Test connection. Reply with: CONNECTION_OK',
-        });
-
-        return {
-            success: true,
-            provider: ai.settings.customerProvider,
-            model: result.model,
-            response: result.content.slice(0, 200),
-        };
+        return testConnection();
     }
 
     async teachAndReply(userId: string, dto: TeachReplyDto) {
-        const interaction = await db.query.interactions.findFirst({
-            where: eq(interactions.id, dto.interactionId),
-            with: { workspace: true }
-        });
-
-        if (!interaction) throw new Error("Interaction not found");
-        if (interaction.workspace.userId !== userId) throw new Error("Unauthorized workspace access");
-
-        if (interaction.authorId) {
-            try {
-                let accessToken: string | undefined;
-                if (interaction.workspace.accessToken) {
-                    try { accessToken = decrypt(interaction.workspace.accessToken); }
-                    catch { console.warn("Failed to decrypt workspace access token"); }
-                }
-
-                const client = PlatformFactory.getClient(interaction.workspace.platform || "generic", {
-                    ...(accessToken !== undefined && { accessToken }),
-                });
-                await client.send({
-                    to: interaction.authorId,
-                    text: dto.humanResponse,
-                    replyToMessageId: interaction.externalId,
-                });
-            } catch (error) {
-                console.error("Failed to dispatch human reply:", error);
-            }
+        const result = await teachAndReply(userId, dto);
+        if (result.newItemId) {
+            await this.aiQueue.add('refresh_item_embedding', { itemId: result.newItemId });
+            this.logger.log(`Queued background embedding for learned item: ${result.newItemId}`);
         }
-
-        await db.update(interactions)
-            .set({
-                response: dto.humanResponse,
-                status: "PROCESSED",
-            })
-            .where(eq(interactions.id, dto.interactionId));
-
-        if (interaction.content && interaction.content.length > 5) {
-            const combinedText = `Q: ${interaction.content} A: ${dto.humanResponse}`;
-
-            try {
-                const ai = await getAIService(interaction.workspace.id, 'coach');
-                const embedResult = await ai.embed(combinedText, interaction.id);
-
-                await db.insert(items).values({
-                    workspaceId: interaction.workspaceId,
-                    name: interaction.content.substring(0, 80),
-                    content: dto.humanResponse,
-                    category: "faq",
-                    sourceId: `interaction:${interaction.id}`,
-                    embedding: embedResult.embedding,
-                    meta: {
-                        originalQuestion: interaction.content,
-                        learnedAt: new Date().toISOString(),
-                    }
-                });
-            } catch (err) {
-                console.error("Failed to learn from interaction:", err);
-            }
-        }
-
-        return { success: true };
+        return result;
     }
 }

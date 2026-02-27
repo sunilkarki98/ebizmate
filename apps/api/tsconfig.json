@@ -23,22 +23,40 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "sourceMap": true,
-    "incremental": true,
+    "incremental": false,
     "outDir": "./dist",
     "rootDir": "./src",
     "baseUrl": "./",
     "paths": {
       "@ebizmate/db": [
-        "../packages/db/src"
+        "../../packages/db/dist"
       ],
       "@ebizmate/db/*": [
-        "../packages/db/src/*"
+        "../../packages/db/dist/*"
       ],
       "@ebizmate/shared": [
-        "../packages/shared/src"
+        "../../packages/shared/dist"
       ],
       "@ebizmate/shared/*": [
-        "../packages/shared/src/*"
+        "../../packages/shared/dist/*"
+      ],
+      "@ebizmate/contracts": [
+        "../../packages/contracts/dist"
+      ],
+      "@ebizmate/contracts/*": [
+        "../../packages/contracts/dist/*"
+      ],
+      "@ebizmate/domain": [
+        "../../packages/domain/dist"
+      ],
+      "@ebizmate/domain/*": [
+        "../../packages/domain/dist/*"
+      ],
+      "@ebizmate/jobs": [
+        "../../packages/jobs/dist"
+      ],
+      "@ebizmate/jobs/*": [
+        "../../packages/jobs/dist/*"
       ]
     }
   },

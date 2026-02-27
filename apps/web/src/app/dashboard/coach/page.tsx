@@ -6,7 +6,7 @@ export default async function CoachPage() {
     const session = await auth();
     if (!session?.user?.id) redirect("/signin");
 
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
     const backendToken = await getBackendToken();
 
     // Default intro message
@@ -18,25 +18,21 @@ export default async function CoachPage() {
         },
     ];
 
-    // Fetch workspace info just in case we need it to know if they hold any setup
-    const wsRes = await fetch(`${backendUrl}/settings/workspace`, {
-        headers: { "Authorization": `Bearer ${backendToken}` },
-        cache: 'no-store'
-    });
-
-    if (!wsRes.ok) {
-        return <CoachClient initialMessages={defaultMessages} />;
-    }
-
-    // Fetch History
-    const historyRes = await fetch(`${backendUrl}/ai/coach/history`, {
-        headers: { "Authorization": `Bearer ${backendToken}` },
-        cache: 'no-store'
-    });
+    // Parallelize independent fetches
+    const [wsRes, historyRes] = await Promise.all([
+        fetch(`${backendUrl}/settings/workspace`, {
+            headers: { "Authorization": `Bearer ${backendToken}` },
+            cache: 'no-store'
+        }),
+        fetch(`${backendUrl}/ai/coach/history`, {
+            headers: { "Authorization": `Bearer ${backendToken}` },
+            cache: 'no-store'
+        })
+    ]);
 
     const formattedMessages = historyRes.ok ? await historyRes.json() : [];
 
     const initialMessages = formattedMessages.length > 0 ? formattedMessages : defaultMessages;
 
-    return <CoachClient initialMessages={initialMessages} />;
+    return <CoachClient initialMessages={initialMessages} userImage={session.user.image} userName={session.user.name} />;
 }

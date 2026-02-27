@@ -8,6 +8,9 @@ import * as jwt from 'jsonwebtoken';
 export class JwtStrategy extends PassportStrategy(Strategy) {
     constructor(private configService: ConfigService) {
         super({
+            // SEC-2 FIX: Only extract JWT from Authorization header.
+            // URL query parameter extraction was removed because tokens in URLs
+            // leak via server logs, Referer headers, and browser history.
             jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
             ignoreExpiration: false,
             // Dynamically select the secret based on the token issuer
@@ -19,14 +22,21 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
                         return done(new Error('Invalid token format'), null);
                     }
 
-                    // Heuristic: Supabase JWTs contain typical claims like `app_metadata` or `iss` containing 'supabase'.
-                    if (decoded.app_metadata || (decoded.iss && decoded.iss.includes('supabase'))) {
-                        done(null, this.configService.get<string>('SUPABASE_JWT_SECRET'));
+                    // Determine token origin by checking the issuer claim.
+                    // Supabase tokens always have an `iss` containing the project URL.
+                    const issuer = decoded.iss || '';
+                    const isSupabaseToken = issuer.includes('supabase') || !!decoded.app_metadata;
+
+                    if (isSupabaseToken) {
+                        const secret = this.configService.get<string>('SUPABASE_JWT_SECRET');
+                        if (!secret) {
+                            return done(new Error('SUPABASE_JWT_SECRET is not configured'), null);
+                        }
+                        done(null, secret);
                     } else {
-                        // Default to NextAuth - throw if not configured
                         const nextAuthSecret = this.configService.get<string>('NEXTAUTH_SECRET');
                         if (!nextAuthSecret) {
-                            throw new Error('NEXTAUTH_SECRET environment variable is required for JWT authentication');
+                            return done(new Error('NEXTAUTH_SECRET environment variable is required for JWT authentication'), null);
                         }
                         done(null, nextAuthSecret);
                     }

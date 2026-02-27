@@ -38,6 +38,11 @@ type Workspace = {
 
 export function WorkspacesClient({ initialWorkspaces }: { initialWorkspaces: any[] }) {
     const [workspaces, setWorkspaces] = useState<Workspace[]>(initialWorkspaces);
+    // Sync local state when props change (after server revalidation)
+    useEffect(() => {
+        setWorkspaces(initialWorkspaces);
+    }, [initialWorkspaces]);
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [isPending, startTransition] = useTransition();
     const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null);
@@ -62,12 +67,25 @@ export function WorkspacesClient({ initialWorkspaces }: { initialWorkspaces: any
         }
     }, [editingWorkspace]);
 
-    function handleToggleGlobalAi(id: string, current: boolean) {
+    function handleToggleGlobalAi(id: string, checked: boolean) {
         // Optimistic update
-        setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, allowGlobalAi: !current } : w));
+        setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, allowGlobalAi: checked } : w));
 
         startTransition(async () => {
-            await toggleGlobalAiAccessAction(id, !current);
+            try {
+                const result = await toggleGlobalAiAccessAction(id, checked);
+                if (result.success) {
+                    toast.success(`AI access ${checked ? 'allowed' : 'blocked'}`);
+                } else if ('error' in result) {
+                    toast.error(result.error);
+                    // Rollback
+                    setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, allowGlobalAi: !checked } : w));
+                }
+            } catch (error) {
+                toast.error("Failed to update AI access");
+                // Rollback
+                setWorkspaces(prev => prev.map(w => w.id === id ? { ...w, allowGlobalAi: !checked } : w));
+            }
         });
     }
 
@@ -85,12 +103,16 @@ export function WorkspacesClient({ initialWorkspaces }: { initialWorkspaces: any
                 newTrialDate = baseDate;
             }
 
-            const payload = {
+            const payload: any = {
                 plan: formData.plan,
                 status: formData.status,
-                customUsageLimit: formData.customLimit ? parseInt(formData.customLimit) : null,
-                trialEndsAt: newTrialDate,
             };
+            if (formData.customLimit) {
+                payload.customUsageLimit = parseInt(formData.customLimit);
+            }
+            if (newTrialDate) {
+                payload.trialEndsAt = newTrialDate;
+            }
 
             const result = await updateWorkspacePlanAction(editingWorkspace.id, payload);
 

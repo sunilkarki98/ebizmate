@@ -42,23 +42,26 @@ export function SettingsForm({ workspace }: { workspace: any }) {
     }
 
     return (
-        <form id="ai-settings-form" action={handleSubmit} className="space-y-6">
-            <Card>
-                <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <CardTitle className="flex items-center gap-2">
-                            <ShieldCheck className="h-5 w-5 text-primary" />
+        <form id="ai-settings-form" action={handleSubmit} className="space-y-6 relative">
+            <Card className="shadow-2xl border border-primary/20 bg-background/50 backdrop-blur-3xl overflow-hidden rounded-2xl relative z-10">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-blue-500 to-purple-500" />
+                <CardHeader className="bg-background/40 border-b border-border/50 pb-6 pt-8">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <CardTitle className="flex items-center gap-3 text-2xl font-bold">
+                            <div className="p-2.5 rounded-xl bg-primary/10 text-primary">
+                                <ShieldCheck className="h-6 w-6" />
+                            </div>
                             AI Engine Configuration
                         </CardTitle>
-                        {isBYOK && <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600">BYOK Active</Badge>}
+                        {isBYOK && <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-600 shadow-sm shadow-emerald-500/20 px-3 py-1 text-xs">BYOK Active</Badge>}
                     </div>
-                    <CardDescription>
+                    <CardDescription className="pt-2 text-sm">
                         {isBYOK
                             ? "You are using your own API keys. No strict token limits apply."
                             : "Your AI settings are currently managed by the EbizMate system."}
                     </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
+                <CardContent className="space-y-8 pt-8">
                     <div className="grid gap-6 md:grid-cols-2">
                         {/* Coach Configuration */}
                         <div className="p-4 rounded-lg border bg-muted/10 space-y-4">

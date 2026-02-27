@@ -5,7 +5,7 @@ export async function GET() {
     const checks: Record<string, boolean> = {};
 
     // Database health
-    checks.database = await checkDbHealth();
+    checks["database"] = await checkDbHealth();
 
     const healthy = Object.values(checks).every(Boolean);
 

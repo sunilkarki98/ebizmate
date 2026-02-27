@@ -12,7 +12,7 @@ export default async function WebhooksPage() {
     const connections = await getWebhooksAction();
     const secrets = await getWebhookSecretsAction();
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL || "https://your-domain.com";
+    const baseUrl = process.env["NEXT_PUBLIC_APP_URL"] || process.env["VERCEL_URL"] || "https://your-domain.com";
 
     return (
         <div className="space-y-6">

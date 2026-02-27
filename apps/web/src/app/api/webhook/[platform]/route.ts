@@ -26,9 +26,12 @@ export async function GET(req: Request) {
     const challenge = url.searchParams.get("challenge") || url.searchParams.get("hub.challenge");
     const verifyToken = url.searchParams.get("verify_token") || url.searchParams.get("hub.verify_token");
 
-    const expectedToken = process.env.WEBHOOK_VERIFY_TOKEN;
+    const expectedToken = process.env["WEBHOOK_VERIFY_TOKEN"];
 
-    if (challenge && verifyToken && expectedToken && verifyToken === expectedToken) {
+    // SEC-6 FIX: Use timing-safe comparison to prevent timing attacks
+    const tokensMatch = verifyToken && expectedToken && verifyToken.length === expectedToken.length &&
+        crypto.timingSafeEqual(Buffer.from(verifyToken), Buffer.from(expectedToken));
+    if (challenge && tokensMatch) {
         // Return the challenge to verify the webhook URL
         return new Response(challenge, { status: 200, headers: { "Content-Type": "text/plain" } });
     }
@@ -43,8 +46,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ platfor
     const { platform } = await params;
 
     // 1. Signature Verification (mandatory in production)
-    const webhookSecret = process.env.WEBHOOK_SECRET;
-    if (!webhookSecret && process.env.NODE_ENV === "production") {
+    const webhookSecret = process.env["WEBHOOK_SECRET"];
+    if (!webhookSecret && process.env["NODE_ENV"] === "production") {
         console.error("WEBHOOK_SECRET is not set — rejecting all webhooks in production");
         return NextResponse.json({ error: "Server misconfiguration" }, { status: 500 });
     }
@@ -82,8 +85,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ platfor
     // Push the validated payload securely to the NestJS API
     after(async () => {
         try {
-            const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-            const internalSecret = process.env.INTERNAL_API_SECRET;
+            const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
+            const internalSecret = process.env["INTERNAL_API_SECRET"];
             if (!internalSecret) {
                 console.error("INTERNAL_API_SECRET is not set — cannot forward webhook to backend");
                 return;

@@ -2,10 +2,42 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Bot, MessageSquare, ShieldCheck, TrendingUp, Users, ShoppingBag, Mail, MapPin, Star } from "lucide-react";
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: "EbizMate — The Autonomous Sales Team for Modern E-Business",
+  description: "EbizMate deploys Front-Line AI Sales Reps and a Back-Office AI Coach to handle Instagram and TikTok DMs and comments automatically, keeping your brand growing 24/7.",
+  alternates: {
+    canonical: "https://ebizmate.com",
+  }
+};
 
 export default function LandingPage() {
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "EbizMate",
+    "operatingSystem": "WebBrowser",
+    "applicationCategory": "BusinessApplication",
+    "offers": {
+      "@type": "Offer",
+      "price": "0.00",
+      "priceCurrency": "USD"
+    },
+    "description": "Enterprise AI Orchestration Platform for E-commerce. Features Dual-Agent architecture, Visual Commerce, and Zero-Hallucination deterministic pipelines.",
+    "creator": {
+      "@type": "Organization",
+      "name": "EbizMate Inc.",
+      "url": "https://ebizmate.com"
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col font-sans">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* Navigation */}
       <header className="flex h-16 items-center justify-between border-b px-6 lg:px-12 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
         <div className="flex items-center gap-2 font-bold text-xl tracking-tight">
@@ -31,14 +63,14 @@ export default function LandingPage() {
         <section className="relative py-12 lg:py-20 px-6 text-center space-y-6 max-w-5xl mx-auto overflow-hidden">
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="inline-block rounded-full bg-primary/10 px-3 py-1 text-sm text-primary font-medium mb-2">
-              New: AI-Powered CSR 🚀
+              New: Dual-Agent Architecture 🚀
             </div>
             <h1 className="text-4xl font-extrabold tracking-tight lg:text-6xl text-balance leading-tight">
-              The AI Partner for <br />
+              The Autonomous Sales Team for <br />
               <span className="text-primary bg-clip-text">Modern E-Business</span>
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto text-balance">
-              <span className="text-primary font-bold">EbizMate</span> isn't just a chatbot. It's a CSR, sales rep, and brand ambassador—working 24/7 on social media.
+              Give your brand a front-line <span className="text-primary font-bold">AI Sales Rep</span> and a back-office <span className="text-primary font-bold">AI Coach</span>—working 24/7 on Instagram and TikTok.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row justify-center gap-3 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200">
@@ -66,18 +98,18 @@ export default function LandingPage() {
             <div className="grid md:grid-cols-3 gap-6">
               <FeatureCard
                 icon={<ShoppingBag className="h-8 w-8 text-blue-500" />}
-                title="Context-Aware Sales"
-                description="Post a video of your product and service you offer and EbizMate will handle your customers queries and sales."
+                title="Visual Commerce in DMs"
+                description="EbizMate doesn't just text. It intelligently retrieves images, prices, and links, injecting swipeable carousels directly into the customer's DM."
               />
               <FeatureCard
-                icon={<TrendingUp className="h-8 w-8 text-green-500" />}
-                title="Viral Growth Engine"
-                description="The algorithm loves engagement. EbizMate replies to thousands of comments instantly, keeping your content at the top of the feed."
+                icon={<ShieldCheck className="h-8 w-8 text-green-500" />}
+                title="Zero-Hallucination Pipeline"
+                description="Built on strictly deterministic semantic search. It only quotes your exact prices. If unsure, it instantly pauses and routes the chat back to your team."
               />
               <FeatureCard
-                icon={<ShieldCheck className="h-8 w-8 text-purple-500" />}
-                title="Brand Voice Guardian"
-                description="Define your specific Tone of Voice (e.g., 'Luxury', 'Friendly'). EbizMate ensures every reply perfectly matches your brand identity."
+                icon={<Users className="h-8 w-8 text-purple-500" />}
+                title="Dual-Agent Governance"
+                description="While the Customer Bot drives sales publicly, your private AI Coach sits in the dashboard to help you ingest knowledge and trigger campaigns."
               />
             </div>
           </div>
@@ -87,9 +119,9 @@ export default function LandingPage() {
         <section className="py-12 px-6 bg-muted/30">
           <div className="max-w-6xl mx-auto">
             <div className="text-center mb-10">
-              <h2 className="text-3xl font-bold tracking-tight mb-4">Who is EbizMate For?</h2>
+              <h2 className="text-3xl font-bold tracking-tight mb-4">Powerful Automations for Any Business</h2>
             </div>
-            <div className="grid md:grid-cols-3 gap-6">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
               <UseCaseCard
                 title="Merchants"
                 icon={<ShoppingBag className="h-5 w-5" />}
@@ -104,6 +136,11 @@ export default function LandingPage() {
                 title="Service Pros"
                 icon={<MessageSquare className="h-5 w-5" />}
                 items={["Book appointments via DM", "Answer 'Where are you located?'", "Qualify leads automatically"]}
+              />
+              <UseCaseCard
+                title="Unified Smart Inbox"
+                icon={<Bot className="h-5 w-5" />}
+                items={["iMessage-style threaded view", "Native post thumbnails in chat", "Glassmorphic escalation badges"]}
               />
             </div>
           </div>

@@ -1,5 +1,5 @@
-
 import { PlatformClient, SendMessageParams, RateLimitFn } from "./types.js";
+import { stripResidualFunctionTags } from "../utils.js";
 
 export class MetaClient implements PlatformClient {
     private accessToken: string;
@@ -33,16 +33,60 @@ export class MetaClient implements PlatformClient {
         try {
             const url = `https://graph.facebook.com/${this.version}/${this.pageId}/messages`;
 
+            const safeText = params.text ? stripResidualFunctionTags(params.text) : undefined;
+            let messagePayload: any = { text: safeText };
+
+            if (params.mediaType === "carousel" && params.carouselItems && params.carouselItems.length > 0) {
+                messagePayload = {
+                    attachment: {
+                        type: "template",
+                        payload: {
+                            template_type: "generic",
+                            elements: params.carouselItems.map(item => {
+                                const element: any = {
+                                    title: item.title,
+                                    subtitle: item.subtitle,
+                                };
+                                if (item.imageUrl) element.image_url = item.imageUrl;
+                                if (item.buttonText) {
+                                    if (item.buttonPayload && item.buttonPayload.startsWith("http")) {
+                                        element.buttons = [{
+                                            type: "web_url",
+                                            url: item.buttonPayload,
+                                            title: item.buttonText
+                                        }];
+                                    } else {
+                                        element.buttons = [{
+                                            type: "postback",
+                                            title: item.buttonText,
+                                            payload: item.buttonPayload || "BUY_CLICKED"
+                                        }];
+                                    }
+                                }
+                                return element;
+                            })
+                        }
+                    }
+                };
+            } else if (params.mediaUrl) {
+                messagePayload = {
+                    attachment: {
+                        type: params.mediaType || "image",
+                        payload: { is_reusable: true, url: params.mediaUrl }
+                    }
+                };
+            }
+
             const body = {
                 recipient: { id: params.to },
-                message: { text: params.text },
-                access_token: this.accessToken
+                message: messagePayload
             };
 
             const response = await fetch(url, {
                 method: "POST",
                 headers: {
-                    "Content-Type": "application/json"
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${this.accessToken}`
                 },
                 body: JSON.stringify(body)
             });
@@ -64,5 +108,15 @@ export class MetaClient implements PlatformClient {
             console.error("Meta Network Error:", error);
             return { success: false, error: error.message };
         }
+    }
+
+    async fetchRecentPosts() {
+        console.log(`[Meta] Mocking fetch for recent posts for Page ${this.pageId}`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        return Array.from({ length: 5 }).map((_, i) => ({
+            id: `meta-post-${Date.now()}-${i}`,
+            caption: `Mock Facebook Post ${i + 1}: Check out our new amazing product! It costs $${(i + 1) * 10} and is perfect for the season.`,
+            createdAt: new Date(Date.now() - i * 86400000)
+        }));
     }
 }

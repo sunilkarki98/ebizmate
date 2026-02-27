@@ -1,5 +1,21 @@
 import type { NextAuthConfig } from "next-auth";
 
+declare module "next-auth" {
+    interface User {
+        role?: string;
+    }
+    interface Session {
+        user: User & { id?: string; role?: string };
+    }
+}
+
+declare module "@auth/core/jwt" {
+    interface JWT {
+        role?: string;
+        id?: string;
+    }
+}
+
 export const authConfig = {
     pages: {
         signIn: "/admin/login",
@@ -7,18 +23,21 @@ export const authConfig = {
     callbacks: {
         async jwt({ token, user }) {
             if (user) {
-                token.role = (user as any).role;
-                token.id = user.id;
+                token['role'] = user.role;
+                token['id'] = user.id;
             }
             return token;
         },
         async session({ session, token }) {
             if (session.user) {
-                (session.user as any).role = (token as any).role;
-                (session.user as any).id = (token as any).id;
+                const role = token['role'];
+                const id = token['id'];
+                if (typeof role === 'string') session.user.role = role;
+                if (typeof id === 'string') session.user.id = id;
             }
             return session;
         },
     },
     providers: [], // Configured in auth.ts
 } satisfies NextAuthConfig;
+

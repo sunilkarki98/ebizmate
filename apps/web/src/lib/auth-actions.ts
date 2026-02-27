@@ -4,6 +4,7 @@ import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { apiClient } from "@/lib/api-client";
 
 const registerSchema = z.object({
     name: z.string().min(2, "Name must be at least 2 characters"),
@@ -34,11 +35,7 @@ export async function loginAction(formData: FormData) {
     return { success: true };
 }
 
-export async function loginWithGoogleAction() {
-    // This action is client-side initiated mainly, but if we needed a server link:
-    // This is a placeholder as client-side SDK handles OAuth redirection best.
-    return { error: "Use client-side method" };
-}
+
 
 export async function logoutAction() {
     const supabase = await createClient();
@@ -54,7 +51,7 @@ export async function registerAction(formData: FormData) {
     // 1. Validate Input
     const parsed = registerSchema.safeParse(data);
     if (!parsed.success) {
-        return { error: parsed.error.issues[0].message };
+        return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
     }
 
     const { name, email, password } = parsed.data;
@@ -86,24 +83,15 @@ export async function registerAction(formData: FormData) {
 
     // 3. Sync to Public DB via API
     try {
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-        const response = await fetch(`${backendUrl}/auth/sync`, {
-            method: 'POST',
+        await apiClient(`/auth/sync`, {
+            method: "POST",
+            requireAuth: false,
             headers: {
-                'Content-Type': 'application/json',
                 // Supabase JWT created upon successful signup 
                 'Authorization': `Bearer ${authData.session?.access_token || ''}`
             },
-            body: JSON.stringify({
-                email,
-                name
-            })
+            body: JSON.stringify({ email, name })
         });
-
-        if (!response.ok) {
-            console.error("Auth sync failed with API:", await response.text());
-            return { error: "Account created but profile sync failed. Please contact support." };
-        }
 
         return { success: true };
     } catch (err) {

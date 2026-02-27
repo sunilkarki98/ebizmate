@@ -1,67 +1,85 @@
-import { Injectable } from '@nestjs/common';
-import { db } from '@ebizmate/db';
-import { interactions, workspaces } from '@ebizmate/db';
-import { eq, and, desc } from 'drizzle-orm';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import * as DomainNotificationsService from '@ebizmate/domain';
+import { Subject, Observable } from 'rxjs';
+import { getDragonflyConfig } from '@ebizmate/shared';
+import { Redis } from 'ioredis';
+
+export interface NotificationEvent {
+    type: 'new_notification';
+    data: any;
+    userId: string;
+}
 
 @Injectable()
-export class NotificationsService {
-    async getNotifications(userId: string, limit: number) {
-        const workspace = await db.query.workspaces.findFirst({
-            where: eq(workspaces.userId, userId),
-        });
+export class NotificationsService implements OnModuleInit, OnModuleDestroy {
+    private readonly logger = new Logger(NotificationsService.name);
+    private notificationSubject = new Subject<NotificationEvent>();
+    private redisSub: Redis | null = null;
+    private redisErrorLogged = false;
 
-        if (!workspace) return { notifications: [], unreadCount: 0 };
+    onModuleInit() {
+        try {
+            const config = getDragonflyConfig();
+            this.redisSub = new Redis({
+                ...config,
+                maxRetriesPerRequest: null,
+                retryStrategy: (times: number) => {
+                    if (times > 10) {
+                        this.logger.warn('Redis subscriber giving up after 10 retries');
+                        return null;
+                    }
+                    return Math.min(times * 1000, 10000);
+                },
+            });
 
-        const systemInteractions = await db.query.interactions.findMany({
-            where: and(
-                eq(interactions.workspaceId, workspace.id),
-                eq(interactions.authorId, "system_architect")
-            ),
-            orderBy: desc(interactions.createdAt),
-            limit,
-        });
-
-        const notifications = systemInteractions.map(i => {
-            let type: "ingestion" | "escalation" | "system" = "system";
-            let title = "System Notification";
-
-            if (i.content?.startsWith("Ingested post:")) {
-                type = "ingestion";
-                title = "📦 Post Ingested";
-            } else if (i.content?.startsWith("Escalated:")) {
-                type = "escalation";
-                title = "🚨 Bot Needs Help";
-            } else if (i.content === "Alert") {
-                type = "escalation";
-                title = "🚨 Bot Stuck";
-            }
-
-            let originalInteractionId: string | undefined;
-            const meta = i.meta as Record<string, any> | null;
-            if (type === "escalation") {
-                if (meta?.originalInteractionId) {
-                    originalInteractionId = meta.originalInteractionId;
-                } else if (i.externalId?.startsWith("escalation-")) {
-                    originalInteractionId = i.externalId.replace("escalation-", "");
+            this.redisSub.on('error', (err) => {
+                if (!this.redisErrorLogged) {
+                    this.logger.warn(`Redis subscriber error: ${err.message}`);
+                    this.redisErrorLogged = true;
                 }
-            }
+            });
 
-            return {
-                id: i.id,
-                type,
-                title,
-                message: i.response || i.content || "",
-                createdAt: i.createdAt,
-                interactionId: i.id,
-                originalInteractionId,
-            };
-        });
+            this.redisSub.on('connect', () => {
+                this.redisErrorLogged = false;
+                this.logger.log('Redis subscriber connected');
+            });
 
-        const oneDayAgo = new Date(Date.now() - 86400000);
-        const unreadCount = notifications.filter(
-            n => n.createdAt && n.createdAt > oneDayAgo
-        ).length;
+            this.redisSub.subscribe('realtime_notifications', (err) => {
+                if (err) this.logger.error('Failed to subscribe to realtime_notifications:', err.message);
+                else this.logger.log('Subscribed to realtime_notifications channel');
+            });
 
-        return { notifications, unreadCount };
+            this.redisSub.on('message', (channel, message) => {
+                if (channel === 'realtime_notifications') {
+                    try {
+                        const parsed = JSON.parse(message);
+                        if (parsed.userId) {
+                            this.emitNotification(parsed.userId, parsed);
+                        }
+                    } catch (e) {
+                        this.logger.error('Invalid notification payload:', message);
+                    }
+                }
+            });
+        } catch (err: any) {
+            this.logger.warn(`Redis subscriber init failed: ${err.message}. SSE notifications will not work.`);
+        }
+    }
+
+    onModuleDestroy() {
+        this.redisSub?.disconnect();
+    }
+
+    async getNotifications(userId: string, limit: number) {
+        return DomainNotificationsService.getNotifications(userId, limit);
+    }
+
+    emitNotification(userId: string, data: any) {
+        this.notificationSubject.next({ type: 'new_notification', userId, data });
+    }
+
+    subscribeToNotifications(): Observable<NotificationEvent> {
+        return this.notificationSubject.asObservable();
     }
 }
+

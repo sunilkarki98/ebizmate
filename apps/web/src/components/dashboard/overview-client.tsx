@@ -158,7 +158,15 @@ export function OverviewClient({ metrics, chartData, recentActivity }: OverviewP
     );
 }
 
-function MetricCard({ title, value, icon: Icon, description, highlight }: any) {
+interface MetricCardProps {
+    title: string;
+    value: string;
+    icon: React.ComponentType<{ className?: string }>;
+    description: string;
+    highlight?: boolean;
+}
+
+function MetricCard({ title, value, icon: Icon, description, highlight }: MetricCardProps) {
     return (
         <Card className={highlight ? "border-destructive/50 bg-destructive/5" : ""}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

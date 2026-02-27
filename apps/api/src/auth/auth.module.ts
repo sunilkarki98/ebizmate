@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
@@ -19,8 +18,8 @@ import { AuthSyncService } from './sync/auth-sync.service';
       inject: [ConfigService],
     }),
   ],
-  providers: [AuthService, JwtStrategy, AuthSyncService],
+  providers: [JwtStrategy, AuthSyncService],
   controllers: [AuthController, AuthSyncController],
-  exports: [AuthService, JwtStrategy],
+  exports: [JwtStrategy],
 })
 export class AuthModule { }

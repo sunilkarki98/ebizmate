@@ -1,6 +1,6 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getWorkspace } from '@/lib/actions';
+import { getWorkspace } from './item-actions';
 
 // Mock dependencies
 vi.mock('@ebizmate/db', () => ({

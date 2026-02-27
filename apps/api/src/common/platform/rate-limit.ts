@@ -1,5 +1,5 @@
 
-import { redis } from "../utils/redis";
+import { dragonfly } from "@ebizmate/shared";
 
 /**
  * Rate Limit Outbound Messages to avoid Platform Bans.
@@ -7,7 +7,7 @@ import { redis } from "../utils/redis";
  * Rule: Max 5 messages per 5 seconds per workspace (safe default).
  */
 export async function checkOutboundRateLimit(workspaceId: string): Promise<boolean> {
-    if (!redis) return true; // Fail open if Redis not connected (risky but better than blocking)
+    if (!dragonfly) return true; // Fail open if Dragonfly not connected (risky but better than blocking)
 
     const key = `rate_limit:outbound:${workspaceId}`;
     const windowSeconds = 5;
@@ -15,11 +15,11 @@ export async function checkOutboundRateLimit(workspaceId: string): Promise<boole
 
     try {
         // Increment count for this window
-        const requests = await redis.incr(key);
+        const requests = await dragonfly.incr(key);
 
         if (requests === 1) {
             // Set expiry on first request
-            await redis.expire(key, windowSeconds);
+            await dragonfly.expire(key, windowSeconds);
         }
 
         if (requests > maxRequests) {

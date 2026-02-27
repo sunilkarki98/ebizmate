@@ -1,6 +1,7 @@
 "use server";
 
-import { auth, getBackendToken } from "@/lib/auth";
+import { auth } from "@/lib/auth";
+import { apiClient } from "@/lib/api-client";
 
 
 export async function simulateWebhookAction(formData: FormData) {
@@ -29,24 +30,19 @@ export async function simulateWebhookAction(formData: FormData) {
     };
 
     try {
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-        const internalSecret = process.env.INTERNAL_API_SECRET;
+        const internalSecret = process.env['INTERNAL_API_SECRET'];
         if (!internalSecret) {
             return { success: false, error: "INTERNAL_API_SECRET is not configured" };
         }
-        const response = await fetch(`${backendUrl}/webhook/internal/simulate`, {
+
+        await apiClient(`/webhook/internal/simulate`, {
             method: "POST",
+            requireAuth: false,
             headers: {
-                "Content-Type": "application/json",
                 "Authorization": `Bearer ${internalSecret}`
             },
             body: JSON.stringify(payload)
         });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.message || "Failed to communicate with Backend");
-        }
 
         return { success: true, reply: "Simulation Payload Sent" };
     } catch (error: any) {
