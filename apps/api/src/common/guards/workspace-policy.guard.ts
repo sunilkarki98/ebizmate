@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { db, workspaces } from '@ebizmate/db';
 import { eq } from 'drizzle-orm';
+import { dragonfly, isDragonflyAvailable } from '@ebizmate/shared';
 
 /**
  * Defense-in-depth guard for AI endpoints.
@@ -28,17 +29,44 @@ export class WorkspacePolicyGuard implements CanActivate {
             throw new UnauthorizedException('Authentication required');
         }
 
-        // Lightweight query — only fetch enforcement-relevant fields
-        const workspace = await db.query.workspaces.findFirst({
-            where: eq(workspaces.userId, user.userId),
-            columns: {
-                id: true,
-                status: true,
-                aiBlocked: true,
-                allowGlobalAi: true,
-                plan: true,
-            },
-        });
+        const cacheKey = `workspace_policy:${user.userId}`;
+        let workspace: any = null;
+
+        // 1. Try Cache First
+        if (isDragonflyAvailable() && dragonfly) {
+            try {
+                const cached = await dragonfly.get(cacheKey);
+                if (cached) {
+                    workspace = JSON.parse(cached);
+                }
+            } catch (err) {
+                this.logger.warn(`Failed to read from Dragonfly cache: ${err}`);
+            }
+        }
+
+        // 2. Fetch from DB if not in cache
+        if (!workspace) {
+            // Lightweight query — only fetch enforcement-relevant fields
+            workspace = await db.query.workspaces.findFirst({
+                where: eq(workspaces.userId, user.userId),
+                columns: {
+                    id: true,
+                    status: true,
+                    aiBlocked: true,
+                    allowGlobalAi: true,
+                    plan: true,
+                },
+            });
+
+            // 3. Write to Cache (60s TTL)
+            if (workspace && isDragonflyAvailable() && dragonfly) {
+                try {
+                    await dragonfly.set(cacheKey, JSON.stringify(workspace), 'EX', 60);
+                } catch (err) {
+                    this.logger.warn(`Failed to write to Dragonfly cache: ${err}`);
+                }
+            }
+        }
 
         if (!workspace) {
             // No workspace yet — allow through (lazy-create will handle it downstream)

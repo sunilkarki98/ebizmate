@@ -46,6 +46,10 @@ export async function generateResponse(
     isSimulation: boolean = false,
     isAmbiguous: boolean = false,
     preferencesSummary: string | null = null,
+    recentAiReplies: string[] = [],
+    toneSeed: number = 1,
+    isReturningCustomer: boolean = false,
+    productOrderStats: Record<string, number> = {},
 ): Promise<OrchestratorResponse> {
     // Build knowledge items for the prompt (with IDs for attribution)
     const knowledgeForPrompt = knowledge.map(k => ({
@@ -64,6 +68,10 @@ export async function generateResponse(
         isSimulation,
         isAmbiguous,
         preferencesSummary,
+        recentAiReplies,
+        toneSeed,
+        isReturningCustomer,
+        productOrderStats,
     );
 
     try {

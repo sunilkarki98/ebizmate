@@ -9,9 +9,9 @@ import { stripResidualFunctionTags } from "@ebizmate/shared";
 // Re-export for backward compatibility
 export { coachToolDefinitions as coachTools } from "./tools.js";
 
-// OPT-5 FIX: Reduced from 50 turns × 2000 chars (~100KB) to 20 turns × 800 chars (~16KB).
+// OPT-5 FIX: Reduced from 50 turns × 2000 chars (~100KB) to 10 turns × 800 chars (~8KB).
 // This dramatically cuts token consumption and LLM costs while maintaining adequate context.
-const MAX_HISTORY_TURNS = 20;
+const MAX_HISTORY_TURNS = 10;
 
 // ── Robust Multi-Format Tool Call Extractor ─────────────────────────────────
 

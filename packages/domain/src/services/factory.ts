@@ -1,4 +1,4 @@
-import { decrypt, checkRateLimit } from "@ebizmate/shared";
+import { decrypt, checkRateLimit, dragonfly } from "@ebizmate/shared";
 import type { AISettings, AIProvider, ChatParams, ChatResult, EmbedResult, ProviderName } from "@ebizmate/contracts";
 import { OpenAIProvider } from "./providers/openai.js";
 import { GeminiProvider } from "./providers/gemini.js";
@@ -9,69 +9,25 @@ import { loadSettings, checkUsage } from "./settings.js";
 import { withRetry } from "./retry.js";
 import { logUsage } from "./usage.js";
 
-// PERF-3 FIX: Provider instance cache to avoid creating new SDK instances on every call.
-// Keyed by "workspaceId:providerName:apiKeyFingerprint", TTL 5 minutes.
-const _providerCache = new Map<string, { provider: AIProvider; expiresAt: number }>();
-const PROVIDER_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-const PROVIDER_CACHE_CLEANUP_INTERVAL = 60_000;
-let _lastProviderCleanup = Date.now();
-
-function getCachedProvider(cacheKey: string): AIProvider | null {
-    const now = Date.now();
-    // Periodic cleanup
-    if (now - _lastProviderCleanup > PROVIDER_CACHE_CLEANUP_INTERVAL) {
-        _lastProviderCleanup = now;
-        for (const [k, v] of _providerCache) {
-            if (v.expiresAt < now) _providerCache.delete(k);
-        }
-    }
-    const entry = _providerCache.get(cacheKey);
-    if (entry && entry.expiresAt > now) return entry.provider;
-    return null;
-}
-
-function setCachedProvider(cacheKey: string, provider: AIProvider) {
-    _providerCache.set(cacheKey, { provider, expiresAt: Date.now() + PROVIDER_CACHE_TTL });
-}
+// Removed in-memory _providerCache to prevent memory leaks and support horizontal scaling (PERF-3)
+const PROVIDER_CACHE_TTL = 300; // 5 minutes in seconds
 
 // --- Provider Factory ---
 
-function createProvider(name: ProviderName, settings: AISettings): AIProvider {
+function createProvider(name: ProviderName, config: any): AIProvider {
     switch (name) {
-        case "openai": {
-            const apiKey = settings.openaiApiKey;
-            if (!apiKey) throw new Error("OpenAI API key not configured");
-            return new OpenAIProvider(
-                decrypt(apiKey),
-                settings.openaiModel,
-                settings.openaiEmbeddingModel,
-            );
-        }
-        case "gemini": {
-            const apiKey = settings.geminiApiKey;
-            if (!apiKey) throw new Error("Gemini API key not configured");
-            return new GeminiProvider(
-                decrypt(apiKey),
-                settings.geminiModel,
-                settings.geminiEmbeddingModel,
-            );
-        }
-        case "openrouter": {
-            const apiKey = settings.openrouterApiKey;
-            if (!apiKey) throw new Error("OpenRouter API key not configured");
-            return new OpenRouterProvider(
-                decrypt(apiKey),
-                settings.openrouterModel,
-            );
-        }
-        case "groq": {
-            const apiKey = settings.groqApiKey;
-            if (!apiKey) throw new Error("Groq API key not configured");
-            return new GroqProvider(
-                decrypt(apiKey),
-                settings.groqModel,
-            );
-        }
+        case "openai":
+            if (!config.apiKey) throw new Error("OpenAI API key not configured");
+            return new OpenAIProvider(config.apiKey, config.model, config.embeddingModel);
+        case "gemini":
+            if (!config.apiKey) throw new Error("Gemini API key not configured");
+            return new GeminiProvider(config.apiKey, config.model, config.embeddingModel);
+        case "openrouter":
+            if (!config.apiKey) throw new Error("OpenRouter API key not configured");
+            return new OpenRouterProvider(config.apiKey, config.model);
+        case "groq":
+            if (!config.apiKey) throw new Error("Groq API key not configured");
+            return new GroqProvider(config.apiKey, config.model);
         case "mock":
             return new MockProvider();
         default:
@@ -106,45 +62,56 @@ export async function getAIService(workspaceId: string, botType: "coach" | "cust
     const envGroqKey = process.env.GROQ_API_KEY;
     const useMock = process.env.MOCK_AI_RESPONSE;
 
-    function getProvider(name: ProviderName): AIProvider {
-        // PERF-3: Check provider cache first
-        const cacheKey = `${workspaceId}:${name}:${botType}`;
-        const cached = getCachedProvider(cacheKey);
-        if (cached) return cached;
+    async function getProvider(name: ProviderName): Promise<AIProvider> {
+        // PERF-3: Check Dragonfly cache for decrypted provider config
+        const cacheKey = `provider_config:${workspaceId}:${name}:${botType}`;
+        let config: any = null;
 
-        const canFallback = settings.allowGlobalAi !== false;
-        let provider: AIProvider;
-
-        // Special case: no DB keys configured, fall back to env var or mock
-        if (canFallback) {
-            if (name === "groq" && !settings.groqApiKey && envGroqKey) {
-                provider = new GroqProvider(envGroqKey, settings.groqModel);
-                setCachedProvider(cacheKey, provider);
-                return provider;
-            }
-            if (name === "openrouter" && !settings.openrouterApiKey && envOpenRouterKey) {
-                provider = new OpenRouterProvider(envOpenRouterKey, settings.openrouterModel);
-                setCachedProvider(cacheKey, provider);
-                return provider;
-            }
-            if (name === "openai" && !settings.openaiApiKey && envOpenAIKey) {
-                provider = new OpenAIProvider(envOpenAIKey, settings.openaiModel, settings.openaiEmbeddingModel);
-                setCachedProvider(cacheKey, provider);
-                return provider;
-            }
-            if (name === "gemini" && !settings.geminiApiKey && envGeminiKey) {
-                provider = new GeminiProvider(envGeminiKey, settings.geminiModel, settings.geminiEmbeddingModel);
-                setCachedProvider(cacheKey, provider);
-                return provider;
-            }
-            if (!settings.openaiApiKey && !settings.geminiApiKey && !settings.openrouterApiKey && useMock) {
-                return new MockProvider(); // Don't cache mock
+        if (dragonfly) {
+            try {
+                const cached = await dragonfly.get(cacheKey);
+                if (cached) {
+                    config = JSON.parse(cached);
+                    return createProvider(name, config);
+                }
+            } catch (err) {
+                console.warn(`[Factory] Failed to read provider cache from Dragonfly:`, err);
             }
         }
 
-        provider = createProvider(name, settings);
-        setCachedProvider(cacheKey, provider);
-        return provider;
+        const canFallback = settings.allowGlobalAi !== false;
+
+        // Build config based on DB settings or fallback
+        if (name === "groq") {
+            const key = settings.groqApiKey ? decrypt(settings.groqApiKey) : (canFallback ? envGroqKey : null);
+            config = { apiKey: key, model: settings.groqModel };
+        } else if (name === "openrouter") {
+            const key = settings.openrouterApiKey ? decrypt(settings.openrouterApiKey) : (canFallback ? envOpenRouterKey : null);
+            config = { apiKey: key, model: settings.openrouterModel };
+        } else if (name === "openai") {
+            const key = settings.openaiApiKey ? decrypt(settings.openaiApiKey) : (canFallback ? envOpenAIKey : null);
+            config = { apiKey: key, model: settings.openaiModel, embeddingModel: settings.openaiEmbeddingModel };
+        } else if (name === "gemini") {
+            const key = settings.geminiApiKey ? decrypt(settings.geminiApiKey) : (canFallback ? envGeminiKey : null);
+            config = { apiKey: key, model: settings.geminiModel, embeddingModel: settings.geminiEmbeddingModel };
+        } else if (name === "mock") {
+            if (!settings.openaiApiKey && !settings.geminiApiKey && !settings.openrouterApiKey && useMock && canFallback) {
+                config = { isMock: true };
+            } else {
+                config = { isMock: true }; // Allow mock explicitly
+            }
+        }
+
+        // Write decrypted config to Dragonfly
+        if (config && dragonfly && name !== "mock") {
+            try {
+                await dragonfly.set(cacheKey, JSON.stringify(config), 'EX', PROVIDER_CACHE_TTL);
+            } catch (err) {
+                console.warn(`[Factory] Failed to write provider cache to Dragonfly:`, err);
+            }
+        }
+
+        return createProvider(name, config);
     }
 
     function getFallbackChain(primary: ProviderName): ProviderName[] {
@@ -180,7 +147,7 @@ export async function getAIService(workspaceId: string, botType: "coach" | "cust
 
         for (const providerName of fallbackChain) {
             try {
-                const providerObj = getProvider(providerName);
+                const providerObj = await getProvider(providerName);
 
                 // If getProvider throws (e.g., missing API key for fallback), we catch it and try next
                 const result = await withRetry(() => fn(providerObj), settings.retryAttempts, `${operation}[${providerName}]`);
@@ -205,30 +172,30 @@ export async function getAIService(workspaceId: string, botType: "coach" | "cust
      * Get a provider that supports embeddings.
      * Groq and OpenRouter don't support embeddings — fall back to OpenAI or Gemini.
      */
-    function getEmbedProvider(): { provider: AIProvider; name: ProviderName } {
+    async function getEmbedProvider(): Promise<{ provider: AIProvider; name: ProviderName }> {
         const chatProvider = botType === "coach" ? settings.coachProvider : settings.customerProvider;
 
         // These providers support embeddings natively
         const EMBED_CAPABLE: ProviderName[] = ["openai", "gemini", "mock"];
 
         if (EMBED_CAPABLE.includes(chatProvider)) {
-            return { provider: getProvider(chatProvider), name: chatProvider };
+            return { provider: await getProvider(chatProvider), name: chatProvider };
         }
 
         // Fall back to an embedding-capable provider
         // Priority: OpenAI (best embeddings) → Gemini → Mock
         if (settings.openaiApiKey || process.env.OPENAI_API_KEY) {
-            return { provider: getProvider("openai"), name: "openai" };
+            return { provider: await getProvider("openai"), name: "openai" };
         }
         if (settings.geminiApiKey || process.env.GEMINI_API_KEY) {
-            return { provider: getProvider("gemini"), name: "gemini" };
+            return { provider: await getProvider("gemini"), name: "gemini" };
         }
         if (process.env.MOCK_AI_RESPONSE) {
-            return { provider: getProvider("mock"), name: "mock" };
+            return { provider: await getProvider("mock"), name: "mock" };
         }
 
         // Last resort: try the chat provider and let it throw
-        return { provider: getProvider(chatProvider), name: chatProvider };
+        return { provider: await getProvider(chatProvider), name: chatProvider };
     }
 
     return {
@@ -270,7 +237,7 @@ export async function getAIService(workspaceId: string, botType: "coach" | "cust
 
         async embed(input: string, interactionId?: string): Promise<EmbedResult> {
             const start = Date.now();
-            const { provider: embedProvider, name: embedProviderName } = getEmbedProvider();
+            const { provider: embedProvider, name: embedProviderName } = await getEmbedProvider();
 
             try {
                 const result = await withRetry(

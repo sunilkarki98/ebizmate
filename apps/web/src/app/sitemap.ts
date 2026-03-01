@@ -23,16 +23,17 @@ export default function sitemap(): MetadataRoute.Sitemap {
             priority: 0.5,
         },
         {
-            url: `${baseUrl}/signup`,
+            url: `${baseUrl}/privacy`,
             lastModified: new Date(),
-            changeFrequency: 'monthly',
-            priority: 0.9,
+            changeFrequency: 'yearly',
+            priority: 0.3,
         },
         {
-            url: `${baseUrl}/signin`,
+            url: `${baseUrl}/terms`,
             lastModified: new Date(),
-            changeFrequency: 'monthly',
-            priority: 0.7,
+            changeFrequency: 'yearly',
+            priority: 0.3,
         },
+        // NOTE: /signin and /signup intentionally excluded — they are noindex pages
     ];
 }

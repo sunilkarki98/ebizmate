@@ -117,11 +117,13 @@ export default function PrivacyPage() {
                 <div className="flex justify-center gap-4 mb-4">
                     <Link href="/privacy" className="hover:text-foreground">Privacy Policy</Link>
                     <span>•</span>
+                    <Link href="/terms" className="hover:text-foreground">Terms of Service</Link>
+                    <span>•</span>
                     <Link href="/about" className="hover:text-foreground">About Us</Link>
                     <span>•</span>
                     <Link href="/contact" className="hover:text-foreground">Contact</Link>
                 </div>
-                <p>&copy; {new Date().getFullYear()} EbizMate Inc. All rights reserved.</p>
+                <p>&copy; {new Date().getFullYear()} EbizMate. All rights reserved.</p>
             </footer>
         </div>
     );

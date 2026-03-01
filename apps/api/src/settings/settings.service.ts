@@ -2,14 +2,14 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import * as DomainSettingsService from '@ebizmate/domain';
-import { UpdateIdentityDto, UpdateAiSettingsDto, UpdateProfileDto } from '@ebizmate/contracts';
+import { UpdateIdentityDto, UpdateAiSettingsDto, UpdateProfileDto, UpdateAutopilotSettings } from '@ebizmate/contracts';
 
 @Injectable()
 export class SettingsService {
     private readonly logger = new Logger(SettingsService.name);
 
     constructor(
-        @InjectQueue('ai') private readonly aiQueue: Queue,
+        @InjectQueue('ai-batch') private readonly aiBatchQueue: Queue,
     ) { }
 
     private async handleDomainCall<T>(call: () => Promise<T>): Promise<T> {
@@ -30,7 +30,7 @@ export class SettingsService {
     }
 
     async updateIdentity(userId: string, dto: UpdateIdentityDto) {
-        return this.handleDomainCall(() => DomainSettingsService.updateIdentity(userId, dto, this.aiQueue));
+        return this.handleDomainCall(() => DomainSettingsService.updateIdentity(userId, dto, this.aiBatchQueue));
     }
 
     async updateProfile(userId: string, dto: UpdateProfileDto) {
@@ -39,5 +39,9 @@ export class SettingsService {
 
     async updateAiSettings(userId: string, dto: UpdateAiSettingsDto) {
         return this.handleDomainCall(() => DomainSettingsService.updateAiSettings(userId, dto));
+    }
+
+    async updateAutopilotSettings(userId: string, dto: UpdateAutopilotSettings) {
+        return this.handleDomainCall(() => DomainSettingsService.updateAutopilotSettings(userId, dto));
     }
 }

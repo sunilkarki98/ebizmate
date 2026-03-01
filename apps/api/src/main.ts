@@ -1,14 +1,27 @@
 import { NestFactory } from '@nestjs/core';
-import { Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { cleanupOpenApiDoc, ZodValidationPipe } from 'nestjs-zod';
+import { Logger } from 'nestjs-pino';
+import * as Sentry from '@sentry/nestjs';
+import { nodeProfilingIntegration } from '@sentry/profiling-node';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN || '',
+  integrations: [
+    nodeProfilingIntegration(),
+  ],
+  // Tracing
+  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0, // Capture 20% of transactions in prod
+  // Profiling
+  profilesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0,
+});
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  const logger = new Logger('Bootstrap');
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  app.useLogger(app.get(Logger));
 
   // INC-6 FIX: Security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
   app.use(helmet());
@@ -41,11 +54,11 @@ async function bootstrap() {
     const document = SwaggerModule.createDocument(app, config);
     cleanupOpenApiDoc(document);
     SwaggerModule.setup('api/docs', app, document);
-    logger.log('Swagger docs available at /api/docs');
+    console.log('Swagger docs available at /api/docs');
   }
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
-  logger.log(`Application is running on: http://localhost:${port}/api`);
+  console.log(`Application is running on: http://localhost:${port}/api`);
 }
 bootstrap();

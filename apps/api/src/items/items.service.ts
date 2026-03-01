@@ -8,7 +8,7 @@ import { Queue } from 'bullmq';
 export class ItemsService {
     private readonly logger = new Logger(ItemsService.name);
 
-    constructor(@InjectQueue('ai') private readonly aiQueue: Queue) { }
+    constructor(@InjectQueue('ai-ingest') private readonly aiIngestQueue: Queue) { }
 
     async getWorkspace(userId: string, userEmail?: string, userName?: string) {
         return DomainItemsService.getWorkspace(userId, userEmail, userName);
@@ -24,7 +24,7 @@ export class ItemsService {
 
     async createItem(workspaceId: string, dto: CreateItemDto) {
         const item = await DomainItemsService.createItem(workspaceId, dto);
-        await this.aiQueue.add('refresh_item_embedding', { itemId: item.id });
+        await this.aiIngestQueue.add('refresh_item_embedding', { itemId: item.id });
         return item;
     }
 
@@ -32,7 +32,7 @@ export class ItemsService {
         try {
             const item = await DomainItemsService.updateItem(workspaceId, id, dto);
             if (dto.name || dto.content) {
-                await this.aiQueue.add('refresh_item_embedding', { itemId: item.id });
+                await this.aiIngestQueue.add('refresh_item_embedding', { itemId: item.id });
             }
             return item;
         } catch (error: any) {

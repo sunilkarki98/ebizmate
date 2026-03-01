@@ -244,3 +244,24 @@ export async function checkInboundRateLimit(workspaceId: string, authorId: strin
         return inMemoryRateCheck(key, maxRequests, windowSeconds * 1000).success;
     }
 }
+
+/** Check if an IP is spamming the webhook endpoint (max 100 requests/minute per IP) */
+export async function checkIpRateLimit(ip: string): Promise<boolean> {
+    const key = `rate_limit:ip:${ip}`;
+    const windowSeconds = 60;
+    const maxRequests = 100;
+
+    try {
+        if (!dragonfly || !isConnected) {
+            return inMemoryRateCheck(key, maxRequests, windowSeconds * 1000).success;
+        }
+        const requests = await dragonfly.incr(key);
+        if (requests === 1) {
+            await dragonfly.expire(key, windowSeconds);
+        }
+        return requests <= maxRequests;
+    } catch (e) {
+        console.error("IP Rate Limit Error, using in-memory fallback:", e);
+        return inMemoryRateCheck(key, maxRequests, windowSeconds * 1000).success;
+    }
+}

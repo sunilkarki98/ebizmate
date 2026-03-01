@@ -1,6 +1,20 @@
 import { z } from 'zod';
 
+/**
+ * Webhook Body Schema
+ * 
+ * Accepts BOTH formats:
+ * - Meta (Instagram/Messenger/WhatsApp): nested { object, entry: [...] }
+ * - TikTok: flat { type, userId, text, ... }
+ * 
+ * Uses .passthrough() to allow platform-specific fields we don't explicitly validate.
+ */
 export const webhookBodySchema = z.object({
+    // Meta format fields
+    object: z.string().optional(),
+    entry: z.array(z.any()).optional(),
+
+    // TikTok / flat format fields
     type: z.string().optional(),
     userId: z.string().max(500).optional(),
     sec_uid: z.string().max(500).optional(),
@@ -15,7 +29,6 @@ export const webhookBodySchema = z.object({
     post_id: z.string().max(500).optional(),
     description: z.string().max(5000).optional(),
     caption: z.string().max(5000).optional(),
-    // TikTok DM fields
     conversation_id: z.string().max(500).optional(),
     conversation_short_id: z.string().max(500).optional(),
 }).passthrough(); // Allow extra fields for platform-specific data

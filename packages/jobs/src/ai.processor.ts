@@ -9,8 +9,6 @@ import { analyzeImage } from '@ebizmate/domain';
 /** Pre-execution check: is the workspace still active and not AI-blocked? */
 async function isWorkspaceActive(interactionId: string): Promise<{ active: boolean; workspaceId?: string }> {
     try {
-        // PERF-2 FIX: Fetch interaction + workspace in one pass, returning workspaceId
-        // so the caller can skip the duplicate DB read downstream.
         const interaction = await db.query.interactions.findFirst({
             where: eq(interactions.id, interactionId),
             columns: { workspaceId: true },
@@ -33,46 +31,65 @@ async function isWorkspaceActive(interactionId: string): Promise<{ active: boole
     }
 }
 
-@Processor('ai', {
-    concurrency: 10,
-})
-export class AiProcessor extends WorkerHost {
-    constructor(
-        @InjectQueue('ai') private readonly aiQueue: Queue,
-    ) {
+async function handleSafely(jobType: string, fn: () => Promise<any>) {
+    try {
+        await fn();
+        return { success: true };
+    } catch (error) {
+        console.error(`[Processor] ${jobType} failed:`, error);
+        throw error; // Re-throw for BullMQ retry, which goes to DLQ if max attempts reached
+    }
+}
+
+async function handleDLQ(job: Job, error: Error, queueName: string) {
+    if (job.attemptsMade >= (job.opts.attempts || 1)) {
+        console.error(`🚨 [DLQ] Job ${job.id} (${job.name}) from ${queueName} permanently failed after ${job.attemptsMade} attempts. Error: ${error.message}`);
+
+        if (isDragonflyAvailable() && dragonfly) {
+            try {
+                const dlqEntry = {
+                    jobId: job.id,
+                    name: job.name,
+                    queue: queueName,
+                    data: job.data,
+                    error: error.message,
+                    stack: error.stack,
+                    failedAt: new Date().toISOString(),
+                };
+                // Push to a Redis list acting as a DLQ
+                await dragonfly.lpush('ai:dlq', JSON.stringify(dlqEntry));
+                // Keep max 1000 items in DLQ
+                await dragonfly.ltrim('ai:dlq', 0, 999);
+            } catch (dlqErr) {
+                console.error(`Failed to push job ${job.id} to DLQ:`, dlqErr);
+            }
+        }
+    } else {
+        console.warn(`⚠️ [BullMQ] Job ${job.id} (${job.name}) in ${queueName} failed (Attempt ${job.attemptsMade} of ${job.opts.attempts || 1}): ${error.message}`);
+    }
+}
+
+// =========================================================================
+// 1. HIGH PRIORITY: Customer Chat & Real-Time Processing
+// =========================================================================
+@Processor('ai-process', { concurrency: 50 })
+export class AiProcessProcessor extends WorkerHost {
+    constructor(@InjectQueue('ai-process') private readonly aiQueue: Queue) {
         super();
     }
 
     async process(job: Job<any, any, string>): Promise<any> {
         const { name, data } = job;
-
-        // RESILIENCE: Each job type is wrapped in its own try/catch
-        // so one failing job type cannot interfere with processing of other types.
         switch (name) {
             case 'process':
                 return this.handleProcess(data);
-            case 'initial_sync':
-                return this.handleSafely('initial_sync', () => syncHistoricalPosts(data.workspaceId, this.aiQueue));
-            case 'ingest':
-                return this.handleSafely('ingest', () => ingestPost(data.postId));
-            case 'upload_batch':
-                return this.handleSafely('upload_batch', () => processBatchIngestion(data.workspaceId, data.sourceId, data.items, this.aiQueue));
-            case 'refresh_item_embedding':
-                return this.handleSafely('refresh_item_embedding', () => refreshItemEmbedding(data.itemId));
-            case 'summarize_profile':
-                return this.handleSafely('summarize_profile', () => summarizeCustomerProfile(data.workspaceId, data.customerId));
-            case 'smart_notification':
-                return this.handleSafely('smart_notification', () => processSmartNewProductNotification(data.workspaceId, data.itemId));
+            case 'smart_notification': // Time sensitive
+                return handleSafely('smart_notification', () => processSmartNewProductNotification(data.workspaceId, data.itemId));
             default:
-                console.warn(`Unknown AI job type: ${name}`);
-                throw new Error(`Unknown AI job type: ${name}`);
+                throw new Error(`Unknown high-priority job type: ${name}`);
         }
     }
 
-    /**
-     * Main interaction processing — with deferred image analysis (PERF-4)
-     * and reduced redundant DB reads (PERF-2).
-     */
     private async handleProcess(data: { interactionId: string }) {
         try {
             const check = await isWorkspaceActive(data.interactionId);
@@ -83,12 +100,9 @@ export class AiProcessor extends WorkerHost {
                 return { success: false, reason: 'workspace_blocked' };
             }
 
-            // PERF-4: Handle deferred image analysis before AI processing
             await this.handlePendingImageAnalysis(data.interactionId, check.workspaceId!);
-
             await processInteraction(data.interactionId);
 
-            // Emit real-time event if escalated (with resilience — failure here shouldn't fail the job)
             try {
                 const finalInteraction = await db.query.interactions.findFirst({
                     where: eq(interactions.id, data.interactionId),
@@ -108,22 +122,16 @@ export class AiProcessor extends WorkerHost {
                     }
                 }
             } catch (notifyErr) {
-                // RESILIENCE: Real-time notification failure should never crash the job
-                console.error(`[AiProcessor] Non-critical: failed to emit escalation event:`, notifyErr);
+                console.error(`[AiProcessProcessor] Non-critical: failed to emit escalation event:`, notifyErr);
             }
 
             return { success: true };
         } catch (error) {
-            console.error(`[AiProcessor] process job failed for ${data.interactionId}:`, error);
-            throw error; // Re-throw so BullMQ can retry
+            console.error(`[AiProcessProcessor] process job failed for ${data.interactionId}:`, error);
+            throw error;
         }
     }
 
-    /**
-     * PERF-4: Analyze images deferred from the webhook path.
-     * The webhook saves media URLs in meta.originalMediaUrl with pendingImageAnalysis=true.
-     * We process them here, before AI processing, so the LLM sees the image description.
-     */
     private async handlePendingImageAnalysis(interactionId: string, workspaceId: string) {
         try {
             const interaction = await db.query.interactions.findFirst({
@@ -145,27 +153,68 @@ export class AiProcessor extends WorkerHost {
                 }).where(eq(interactions.id, interactionId));
             }
         } catch (err) {
-            // RESILIENCE: Image analysis failure should not block AI processing
-            console.error(`[AiProcessor] Image analysis failed (non-blocking):`, err);
-        }
-    }
-
-    /**
-     * RESILIENCE: Generic wrapper that isolates each job type.
-     * Failure in one job type cannot cascade to others.
-     */
-    private async handleSafely(jobType: string, fn: () => Promise<any>) {
-        try {
-            await fn();
-            return { success: true };
-        } catch (error) {
-            console.error(`[AiProcessor] ${jobType} failed:`, error);
-            throw error; // Re-throw for BullMQ retry
+            console.error(`[AiProcessProcessor] Image analysis failed (non-blocking):`, err);
         }
     }
 
     @OnWorkerEvent('failed')
     onFailed(job: Job, error: Error) {
-        console.error(`🚨 [BullMQ] Job ${job.id} of type ${job.name} failed after ${job.attemptsMade} attempts:`, error.message);
+        handleDLQ(job, error, 'ai-process');
+    }
+}
+
+// =========================================================================
+// 2. MEDIUM PRIORITY: Single Ingestions & Maintenance
+// =========================================================================
+@Processor('ai-ingest', { concurrency: 20 })
+export class AiIngestProcessor extends WorkerHost {
+    constructor(@InjectQueue('ai-ingest') private readonly aiQueue: Queue) {
+        super();
+    }
+
+    async process(job: Job<any, any, string>): Promise<any> {
+        const { name, data } = job;
+        switch (name) {
+            case 'ingest':
+                return handleSafely('ingest', () => ingestPost(data.postId));
+            case 'refresh_item_embedding':
+                return handleSafely('refresh_item_embedding', () => refreshItemEmbedding(data.itemId));
+            case 'summarize_profile':
+                return handleSafely('summarize_profile', () => summarizeCustomerProfile(data.workspaceId, data.customerId));
+            default:
+                throw new Error(`Unknown ingest job type: ${name}`);
+        }
+    }
+
+    @OnWorkerEvent('failed')
+    onFailed(job: Job, error: Error) {
+        handleDLQ(job, error, 'ai-ingest');
+    }
+}
+
+// =========================================================================
+// 3. LOW PRIORITY: Batch Imports (Prevents starving real-time chats)
+// =========================================================================
+@Processor('ai-batch', { concurrency: 5 }) // Low concurrency to protect DB connection pool
+export class AiBatchProcessor extends WorkerHost {
+    constructor(@InjectQueue('ai-batch') private readonly aiQueue: Queue) {
+        super();
+    }
+
+    async process(job: Job<any, any, string>): Promise<any> {
+        const { name, data } = job;
+        switch (name) {
+            case 'upload_batch':
+                return handleSafely('upload_batch', () => processBatchIngestion(data.workspaceId, data.sourceId, data.items, this.aiQueue));
+            case 'initial_sync':
+                return handleSafely('initial_sync', () => syncHistoricalPosts(data.workspaceId, this.aiQueue));
+            default:
+                throw new Error(`Unknown batch job type: ${name}`);
+        }
+    }
+
+    @OnWorkerEvent('failed')
+    onFailed(job: Job, error: Error) {
+        handleDLQ(job, error, 'ai-batch');
     }
 }

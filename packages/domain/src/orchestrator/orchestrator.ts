@@ -13,8 +13,8 @@
  */
 
 import { db } from "@ebizmate/db";
-import { interactions } from "@ebizmate/db";
-import { eq, and, not, desc } from "drizzle-orm";
+import { interactions, orders } from "@ebizmate/db";
+import { eq, and, not, desc, inArray, gt, sql } from "drizzle-orm";
 import { getAIService } from "../services/factory.js";
 import { classifyIntent } from "./intent-classifier.js";
 import { retrieveKnowledge } from "./knowledge-retriever.js";
@@ -101,6 +101,52 @@ export async function orchestrate(interactionOrId: string | { id: string; worksp
     const isSimulation = interaction.sourceId === "simulation";
     const preferencesSummary = (interaction.customer as any)?.preferencesSummary || null;
 
+    // ── Upgrade 2: Anti-Repetition — extract recent AI replies from history ──
+    const recentAiReplies = history
+        .filter(h => h.role === "assistant" && h.content && h.content !== "...")
+        .slice(-3)
+        .map(h => h.content);
+
+    // ── Upgrade 5: Tone Randomization Seed ──
+    const toneSeed = Math.floor(Math.random() * 5) + 1;
+
+    // ── Upgrade 4: Repeat Customer Detection ──
+    const lastPurchaseAt = (interaction.customer as any)?.lastPurchaseAt;
+    const isReturningCustomer = !!(lastPurchaseAt || (preferencesSummary && preferencesSummary.length > 20));
+
+    // ── Upgrade 2b: Data-Driven Social Proof — per-product order count ──
+    // Query how many times each retrieved knowledge item (product) was ordered in the last 30 days.
+    // Uses PostgreSQL jsonb_array_elements to search inside the orderItems JSON column.
+    let productOrderStats: Record<string, number> = {};
+    try {
+        if (knowledge.length > 0) {
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+            const productNames = knowledge.map(k => k.name);
+
+            // Query: for each product name, count how many confirmed/completed orders contain it
+            const statsResult = await db.execute(sql`
+                SELECT item->>'name' AS product_name, COUNT(DISTINCT o.id) AS order_count
+                FROM orders o,
+                     jsonb_array_elements(o."orderItems"::jsonb) AS item
+                WHERE o."workspaceId" = ${workspaceId}
+                  AND o.status IN ('confirmed', 'completed')
+                  AND o."createdAt" > ${thirtyDaysAgo}
+                  AND item->>'name' = ANY(${productNames})
+                GROUP BY item->>'name'
+            `);
+
+            for (const row of statsResult.rows as any[]) {
+                if (row.product_name && row.order_count) {
+                    productOrderStats[row.product_name] = Number(row.order_count);
+                }
+            }
+        }
+    } catch {
+        // Non-critical — if query fails, just skip social proof
+        productOrderStats = {};
+    }
+
     const response = await generateResponse(
         ai,
         workspace,
@@ -112,6 +158,10 @@ export async function orchestrate(interactionOrId: string | { id: string; worksp
         isSimulation,
         isAmbiguous,
         preferencesSummary,
+        recentAiReplies,
+        toneSeed,
+        isReturningCustomer,
+        productOrderStats,
     );
 
     // ── 4. Confidence Evaluation ──

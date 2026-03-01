@@ -23,3 +23,6 @@ export * from './webhook/webhook.schema.js';
 // Admin
 export * from './admin/admin.schema.js';
 
+// Features
+export * from './autopilot.schema.js';
+

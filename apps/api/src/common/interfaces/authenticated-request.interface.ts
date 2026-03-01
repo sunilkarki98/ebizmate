@@ -10,4 +10,5 @@ export interface JwtPayload {
 
 export interface AuthenticatedRequest extends Request {
     user: JwtPayload;
+    workspacePolicy?: any; // Added to resolve TS errors from WorkspacePolicyGuard
 }

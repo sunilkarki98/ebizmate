@@ -7,7 +7,7 @@ import { PlatformIcon } from "@/components/platform-icon";
 import { Loader2, CheckCircle2, Link as LinkIcon } from "lucide-react";
 
 interface IntegrationCardProps {
-    platform: "instagram" | "facebook" | "tiktok";
+    platform: "instagram" | "facebook" | "tiktok" | "whatsapp";
     title: string;
     description: string;
     isConnected: boolean;
@@ -58,7 +58,7 @@ export function IntegrationCard({ platform, title, description, isConnected, oau
             </CardContent>
             <CardFooter className="bg-muted/30 border-t px-6 py-4 flex justify-between items-center">
                 <p className="text-xs text-muted-foreground">
-                    Requires admin permissions on the {platform === "tiktok" ? "TikTok" : "Facebook"} page.
+                    Requires admin permissions on the {platform === "tiktok" ? "TikTok" : platform === "whatsapp" ? "WhatsApp Business" : "Facebook"} page.
                 </p>
                 {isConnected ? (
                     <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/20" disabled={isLoading}>

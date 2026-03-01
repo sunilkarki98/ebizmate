@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "orders_idempotency_idx" ON "orders" USING btree ("workspaceId","interactionId");

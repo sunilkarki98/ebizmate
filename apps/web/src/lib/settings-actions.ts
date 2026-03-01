@@ -1,8 +1,8 @@
 "use server";
 
 import { auth } from "@/lib/auth";
-import { revalidatePath } from "next/cache";
-import { updateIdentitySchema, updateAiSettingsSchema } from "@ebizmate/contracts";
+import { revalidateTag } from "next/cache";
+import { updateIdentitySchema, updateAiSettingsSchema, UpdateAutopilotSettingsSchema } from "@ebizmate/contracts";
 import { apiClient } from "@/lib/api-client";
 
 export async function updateWorkspaceAISettingsAction(formData: FormData) {
@@ -31,7 +31,7 @@ export async function updateWorkspaceAISettingsAction(formData: FormData) {
         return { error: e.message || "Failed to update AI settings" };
     }
 
-    revalidatePath("/dashboard/settings");
+    revalidateTag("workspace-settings", { expire: 0 });
     return { success: true };
 }
 
@@ -58,6 +58,36 @@ export async function updateIdentityAction(formData: FormData) {
         return { error: e.message || "Failed to update identity" };
     }
 
-    revalidatePath("/dashboard");
+    revalidateTag("workspace-settings", { expire: 0 });
+    revalidateTag("workspace-identity", { expire: 0 });
+    return { success: true };
+}
+
+export async function updateAutopilotSettingsAction(formData: FormData) {
+    const session = await auth();
+    if (!session?.user?.id) return { error: "Unauthorized" };
+
+    const parsed = UpdateAutopilotSettingsSchema.safeParse({
+        autopilotMode: formData.get("autopilotMode") as any,
+        timezone: formData.get("timezone"),
+        businessHoursStart: formData.get("businessHoursStart"),
+        businessHoursEnd: formData.get("businessHoursEnd"),
+        maxHumanCapacity: Number(formData.get("maxHumanCapacity")),
+    });
+
+    if (!parsed.success) {
+        return { error: parsed.error.issues[0]?.message ?? "Invalid autopilot settings" };
+    }
+
+    try {
+        await apiClient(`/settings/autopilot`, {
+            method: "PUT",
+            body: JSON.stringify(parsed.data)
+        });
+    } catch (e: any) {
+        return { error: e.message || "Failed to update autopilot settings" };
+    }
+
+    revalidateTag("workspace-settings", { expire: 0 });
     return { success: true };
 }

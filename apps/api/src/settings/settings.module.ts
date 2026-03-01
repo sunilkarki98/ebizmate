@@ -9,9 +9,11 @@ import { SettingsService } from './settings.service';
         BullModule.forRoot({
             connection: getDragonflyConfig(),
         }),
-        BullModule.registerQueue({
-            name: 'ai',
-        }),
+        BullModule.registerQueue(
+            { name: 'ai-process' },
+            { name: 'ai-ingest' },
+            { name: 'ai-batch' }
+        ),
     ],
     controllers: [SettingsController],
     providers: [SettingsService],

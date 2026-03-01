@@ -5,8 +5,8 @@ import { Bot, Mail, MapPin, MessageSquare } from "lucide-react";
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-    title: "Contact Sales & Support",
-    description: "Get in touch with the EbizMate team for general inquiries, support, or enterprise sales and high-volume needs.",
+    title: "Contact Us",
+    description: "Get in touch with the EbizMate team for support, questions, or high-volume seller needs.",
     alternates: {
         canonical: "https://ebizmate.com/contact",
     }
@@ -23,12 +23,12 @@ export default function ContactPage() {
                 <nav className="flex items-center gap-6">
                     <Link href="/about" className="text-sm font-medium hover:text-primary transition-colors">About</Link>
                     <Link href="/contact" className="text-sm font-medium hover:text-primary transition-colors">Contact</Link>
-                    <div className="flex gap-4">
+                    <div className="flex gap-3 ml-4">
                         <Link href="/signin">
-                            <Button variant="ghost">Log In</Button>
+                            <Button variant="ghost" size="sm">Log In</Button>
                         </Link>
                         <Link href="/dashboard">
-                            <Button>Get Started</Button>
+                            <Button size="sm" className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white">Get Started</Button>
                         </Link>
                     </div>
                 </nav>
@@ -52,13 +52,13 @@ export default function ContactPage() {
 
                             <div className="space-y-4">
                                 <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-primary/10 rounded-full text-primary">
+                                    <div className="p-2 bg-violet-100 dark:bg-violet-900/30 rounded-full text-violet-600 dark:text-violet-400">
                                         <Mail className="h-5 w-5" />
                                     </div>
                                     <a href="mailto:support@ebizmate.com" className="font-medium hover:underline">support@ebizmate.com</a>
                                 </div>
                                 <div className="flex items-center gap-3">
-                                    <div className="p-2 bg-primary/10 rounded-full text-primary">
+                                    <div className="p-2 bg-violet-100 dark:bg-violet-900/30 rounded-full text-violet-600 dark:text-violet-400">
                                         <MapPin className="h-5 w-5" />
                                     </div>
                                     <span className="text-muted-foreground">123 Innovation Drive, Tech City</span>
@@ -68,12 +68,12 @@ export default function ContactPage() {
 
                         <div className="bg-card border rounded-2xl p-8 space-y-6 shadow-sm">
                             <div className="space-y-2">
-                                <h3 className="text-2xl font-bold">Sales & Enterprise</h3>
-                                <p className="text-muted-foreground">For custom plans and high-volume needs.</p>
+                                <h3 className="text-2xl font-bold">High-Volume Sellers</h3>
+                                <p className="text-muted-foreground">For custom plans and high-volume DM needs.</p>
                             </div>
                             <div className="space-y-4">
-                                <Button className="w-full gap-2" size="lg">
-                                    <MessageSquare className="h-4 w-4" /> Chat with Sales
+                                <Button className="w-full gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 text-white hover:from-violet-700 hover:to-indigo-700" size="lg">
+                                    <MessageSquare className="h-4 w-4" /> Message our Team
                                 </Button>
                                 <p className="text-xs text-muted-foreground text-center">Typical response time: 1 hour</p>
                             </div>
@@ -82,15 +82,17 @@ export default function ContactPage() {
                 </div>
             </main>
 
-            <footer className="py-8 border-t bg-muted/20 text-center text-sm text-muted-foreground">
+            <footer className="py-8 border-t text-center text-sm text-muted-foreground">
                 <div className="flex justify-center gap-4 mb-4">
                     <Link href="/privacy" className="hover:text-foreground">Privacy Policy</Link>
+                    <span>•</span>
+                    <Link href="/terms" className="hover:text-foreground">Terms of Service</Link>
                     <span>•</span>
                     <Link href="/about" className="hover:text-foreground">About Us</Link>
                     <span>•</span>
                     <Link href="/contact" className="hover:text-foreground">Contact</Link>
                 </div>
-                <p>&copy; {new Date().getFullYear()} EbizMate Inc. All rights reserved.</p>
+                <p>&copy; {new Date().getFullYear()} EbizMate. All rights reserved.</p>
             </footer>
         </div>
     );

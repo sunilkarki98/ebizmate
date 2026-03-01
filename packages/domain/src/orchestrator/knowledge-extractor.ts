@@ -63,7 +63,6 @@ export async function extractKnowledge(
         const parsed = JSON.parse(raw);
         const validated = KnowledgeExtractionResultSchema.parse(parsed);
         rawItems = validated.knowledgeItems as typeof rawItems;
-
     } catch (err) {
         console.warn("[KnowledgeExtractor] Extraction failed:", err);
         return [];

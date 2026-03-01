@@ -38,16 +38,11 @@ export async function checkUsage(workspaceId: string, limit: number) {
             }
 
             if (!cached && totalTokens === 0) { // Still not resolved by cache
-                const [usage] = await db
-                    .select({
-                        totalTokens: sql<number>`coalesce(sum(${aiUsageLog.totalTokens}), 0)::int`,
-                    })
-                    .from(aiUsageLog)
-                    .where(and(
-                        eq(aiUsageLog.workspaceId, workspaceId),
-                        gte(aiUsageLog.createdAt, startOfMonth)
-                    ));
-                totalTokens = usage.totalTokens;
+                const workspace = await db.query.workspaces.findFirst({
+                    where: eq(workspaces.id, workspaceId),
+                    columns: { usedTokens: true }
+                });
+                totalTokens = workspace?.usedTokens || 0;
 
                 if (gotLock) {
                     await dragonfly?.set(cacheKey, totalTokens.toString(), "EX", 60); // 1 min cache
@@ -56,21 +51,16 @@ export async function checkUsage(workspaceId: string, limit: number) {
             }
         }
     } catch (err) {
-        console.warn("Usage check check failed, falling back to aggregate:", err);
-        const [usage] = await db
-            .select({
-                totalTokens: sql<number>`coalesce(sum(${aiUsageLog.totalTokens}), 0)::int`,
-            })
-            .from(aiUsageLog)
-            .where(and(
-                eq(aiUsageLog.workspaceId, workspaceId),
-                gte(aiUsageLog.createdAt, startOfMonth)
-            ));
-        totalTokens = usage.totalTokens;
+        console.warn("Usage check failed, falling back to DB counter:", err);
+        const workspace = await db.query.workspaces.findFirst({
+            where: eq(workspaces.id, workspaceId),
+            columns: { usedTokens: true }
+        });
+        totalTokens = workspace?.usedTokens || 0;
     }
 
     if (totalTokens >= limit) {
-        throw new Error(`AI_LIMIT_EXCEEDED: You have used ${totalTokens.toLocaleString()} / ${limit.toLocaleString()} tokens this month. Upgrade your plan.`);
+        throw new Error(`AI_LIMIT_EXCEEDED: You have used ${totalTokens.toLocaleString()} / ${limit.toLocaleString()} tokens this cycle. Upgrade your plan.`);
     }
 }
 

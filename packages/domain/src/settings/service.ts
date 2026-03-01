@@ -2,7 +2,7 @@ import { db } from '@ebizmate/db';
 import { workspaces, aiSettings } from '@ebizmate/db';
 import { eq } from 'drizzle-orm';
 import { encrypt, dragonfly } from '@ebizmate/shared';
-import { UpdateIdentityDto, UpdateAiSettingsDto, UpdateProfileDto, updateIdentitySchema, updateProfileSchema, updateAiSettingsSchema } from '@ebizmate/contracts';
+import { UpdateIdentityDto, UpdateAiSettingsDto, UpdateProfileDto, UpdateAutopilotSettings, updateIdentitySchema, updateProfileSchema, updateAiSettingsSchema, UpdateAutopilotSettingsSchema } from '@ebizmate/contracts';
 import type { Queue } from 'bullmq';
 
 
@@ -99,6 +99,28 @@ export async function updateAiSettings(userId: string, inputDto: UpdateAiSetting
     } catch (err) {
         console.warn("Failed to invalidate AI settings cache:", err);
     }
+
+    return { success: true };
+}
+
+export async function updateAutopilotSettings(userId: string, inputDto: UpdateAutopilotSettings) {
+    const dto = UpdateAutopilotSettingsSchema.parse(inputDto);
+    const workspace = await db.query.workspaces.findFirst({
+        where: eq(workspaces.userId, userId),
+    });
+
+    if (!workspace) throw new Error('Workspace not found');
+
+    await db.update(workspaces)
+        .set({
+            autopilotMode: dto.autopilotMode,
+            timezone: dto.timezone,
+            businessHoursStart: dto.businessHoursStart,
+            businessHoursEnd: dto.businessHoursEnd,
+            maxHumanCapacity: dto.maxHumanCapacity,
+            updatedAt: new Date(),
+        })
+        .where(eq(workspaces.id, workspace.id));
 
     return { success: true };
 }

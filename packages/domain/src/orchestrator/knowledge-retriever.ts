@@ -7,7 +7,7 @@
  */
 
 import { db } from "@ebizmate/db";
-import { items } from "@ebizmate/db";
+import { items, itemRelations } from "@ebizmate/db";
 import { eq, or, and, desc, sql, gt, isNull, inArray, ilike } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm";
 import { sanitizeLikeInput } from "@ebizmate/shared";
@@ -29,7 +29,10 @@ function computeHybridScore(
     recencyBoost: number,
     intentBoost: number = 0,
 ): number {
-    return 0.5 * similarity + 0.25 * keywordScore + 0.1 * recencyBoost + 0.15 * intentBoost;
+    // Elevate the baseline similarity if there is an exact keyword match so it safely passes the 0.4 threshold.
+    // Floor is now 0.5, ensuring math (0.5*0.5 + 0.25*1.0) = 0.5 > 0.4.
+    const effectiveSimilarity = Math.max(similarity, keywordScore > 0 ? 0.5 : 0);
+    return 0.5 * effectiveSimilarity + 0.25 * keywordScore + 0.1 * recencyBoost + 0.15 * intentBoost;
 }
 
 /**
@@ -80,7 +83,8 @@ export async function retrieveKnowledge(
     // ── 1. Stop-word Filtering for Keywords ──
     const keywords = customerMessage
         .toLowerCase()
-        .replace(/[^\w\s]/gi, '')
+        // Preserve word characters, spaces, hyphens, and underscores for exact ID/SKU matching
+        .replace(/[^\w\s\-_]/gi, '')
         .split(" ")
         .filter(w => w.length > 2 && !STOP_WORDS.has(w))
         .slice(0, 5);
@@ -180,11 +184,15 @@ export async function retrieveKnowledge(
 
         // ── Expand Related Items ──
         const relatedIds = new Set<string>();
-        rankedItems.forEach(entry => {
-            if (Array.isArray(entry.item.relatedItemIds)) {
-                (entry.item.relatedItemIds as string[]).forEach(id => relatedIds.add(id));
-            }
-        });
+        const rankedItemIds = rankedItems.map(e => e.item.id);
+
+        if (rankedItemIds.length > 0) {
+            const relations = await db.select({ relatedItemId: itemRelations.relatedItemId })
+                .from(itemRelations)
+                .where(inArray(itemRelations.itemId, rankedItemIds));
+
+            relations.forEach(r => relatedIds.add(r.relatedItemId));
+        }
 
         // Remove already-fetched items from related set
         rankedItems.forEach(entry => relatedIds.delete(entry.item.id));

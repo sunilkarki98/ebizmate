@@ -1,6 +1,8 @@
-import { db } from "@ebizmate/db";
-import { interactions, customers, orders, coachConversations, workspaces } from "@ebizmate/db";
 import { eq, and, desc } from "drizzle-orm";
+// Drizzle db imports removed to enforce DAO pattern for better testability
+import { findCustomerByPlatformId, updateCustomerPreferences, updateCustomerConversationState } from "./dao.js";
+import { getInteractionWithRelations, updateInteractionStatus, saveSystemEventInteraction, countActiveChats } from "../interactions/dao.js";
+import { createOrderTransaction } from "../orders/dao.js";
 import { getAIService } from "../services/factory.js";
 import { processStateMachine, setOrderCreator, setIntentDetector, PlatformFactory, decrypt } from "@ebizmate/shared";
 import { checkOutboundRateLimit, isDragonflyAvailable, dragonfly } from "@ebizmate/shared";
@@ -64,7 +66,7 @@ async function translateSystemMessage(
 export async function processInteraction(interactionId: string) {
     // Lazy register callbacks for the state machine
     if (!_callbacksRegistered) {
-        setOrderCreator(createOrderAndNotify);
+        setOrderCreator(createOrderTransaction);
         setIntentDetector(async (workspaceId: string, message: string, iId?: string) => {
             const ai = await getAIService(workspaceId, "customer");
             return await detectYesNoIntent(ai, message, iId);
@@ -75,33 +77,75 @@ export async function processInteraction(interactionId: string) {
     const startTime = Date.now();
 
     // 1️⃣ Fetch interaction + workspace + customer
-    // M-3 FIX: Include customer relation here so we can pass the full object
-    // to orchestrate() and avoid a redundant DB read.
-    const interaction = await db.query.interactions.findFirst({
-        where: eq(interactions.id, interactionId),
-        with: { workspace: true, post: true, customer: true },
-    });
+    const interaction = await getInteractionWithRelations(interactionId);
     if (!interaction || !interaction.workspace) throw new Error("Interaction not found");
 
     const workspaceId = interaction.workspaceId;
+    const ws = interaction.workspace;
 
-    // --- AI Pause Check ---
-    if (interaction.workspace.settings?.ai_active === false) {
-        await db.update(interactions)
-            .set({ status: "IGNORED", response: "AI_PAUSED_BY_USER", updatedAt: new Date() })
-            .where(eq(interactions.id, interactionId));
+    // --- AI Pause Check Check (Manual Override) ---
+    if (ws.settings?.ai_active === false) {
+        await updateInteractionStatus(interactionId, { status: "IGNORED", response: "AI_PAUSED_BY_USER" });
         return "AI_PAUSED_BY_USER";
+    }
+
+    // --- Autopilot Mode Verification (Epic 13) ---
+    const autopilotMode = ws.autopilotMode as "ALWAYS_ON" | "AFTER_HOURS" | "OVERFLOW" | "OFF";
+    let aiShouldSleep = false;
+    let sleepReason = "";
+
+    if (autopilotMode === "OFF") {
+        aiShouldSleep = true;
+        sleepReason = "AI set to OFF in autopilot settings";
+    } else if (autopilotMode === "AFTER_HOURS") {
+        // AI is only active OUTSIDE of business hours
+        const tz = ws.timezone || "UTC";
+        try {
+            // Get HH:mm in target timezone (e.g. "14:30")
+            const nowHourMin = new Intl.DateTimeFormat("en-US", {
+                timeZone: tz,
+                hour: "2-digit", minute: "2-digit", hour12: false
+            }).format(new Date());
+
+            const start = ws.businessHoursStart || "09:00";
+            const end = ws.businessHoursEnd || "17:00";
+
+            // If it's currently INSIDE business hours, the AI sleeps. (Format: HH:mm)
+            if (nowHourMin >= start && nowHourMin < end) {
+                aiShouldSleep = true;
+                sleepReason = `Currently inside business hours (${start}-${end} ${tz}). AI deferred to human.`;
+            }
+        } catch (err) {
+            console.warn(`[Processor] Timezone error for ${tz}, defaulting to Always On`, err);
+        }
+    } else if (autopilotMode === "OVERFLOW") {
+        // AI is only active if the human is overwhelmed
+        const capacity = ws.maxHumanCapacity || 5;
+        try {
+            const activeCount = await countActiveChats(workspaceId);
+            // If active chats are LESS than or equal to capacity, human can handle it. AI sleeps.
+            if (activeCount <= capacity) {
+                aiShouldSleep = true;
+                sleepReason = `Under capacity (${activeCount}/${capacity} active). AI deferred to human.`;
+            }
+        } catch (err) {
+            console.error("[Processor] Capacity check failed", err);
+        }
+    }
+
+    if (aiShouldSleep) {
+        console.log(`[Processor] Skipping interaction ${interactionId} due to Autopilot: ${sleepReason}`);
+        await updateInteractionStatus(interactionId, {
+            status: "PENDING", // Keep it pending so the human sees it in the inbox
+            meta: { ...(interaction.meta as any), aiSkippedReason: sleepReason }
+        });
+        return sleepReason;
     }
 
     // --- Human Takeover Check ---
     let customer = null;
     if (interaction.authorId) {
-        customer = await db.query.customers.findFirst({
-            where: and(
-                eq(customers.workspaceId, workspaceId),
-                eq(customers.platformId, interaction.authorId)
-            ),
-        });
+        customer = await findCustomerByPlatformId(workspaceId, interaction.authorId);
         if (customer?.aiPaused) return "HUMAN_TAKEOVER_ACTIVE";
     }
 
@@ -123,9 +167,11 @@ export async function processInteraction(interactionId: string) {
             );
 
             const metaObj = (interaction.meta as Record<string, any>) || {};
-            await db.update(interactions)
-                .set({ response: translatedReply, status: "PROCESSED", meta: { ...metaObj, isStateFlow: true }, updatedAt: new Date() })
-                .where(eq(interactions.id, interactionId));
+            await updateInteractionStatus(interactionId, {
+                response: translatedReply,
+                status: "PROCESSED",
+                meta: { ...metaObj, isStateFlow: true }
+            });
             return translatedReply;
         }
     }
@@ -139,9 +185,39 @@ export async function processInteraction(interactionId: string) {
         result = await orchestrate(interaction);
     } catch (err) {
         console.error("[Processor] Orchestrator failed:", err);
-        await db.update(interactions)
-            .set({ status: "FAILED", response: "AI processing failed", updatedAt: new Date() })
-            .where(eq(interactions.id, interactionId));
+        await updateInteractionStatus(interactionId, { status: "FAILED", response: "AI processing failed" });
+
+        // --- Graceful Degradation Fallback (Phase 4) ---
+        // If the orchestrator completely fails (e.g. all AI providers are down),
+        // we must not fail silently. Tell the customer we are escalating to a human.
+        try {
+            if (interaction.authorId) {
+                let accessToken: string | undefined;
+                if (interaction.workspace.accessToken) {
+                    try { accessToken = decrypt(interaction.workspace.accessToken); }
+                    catch { /* ignore */ }
+                }
+
+                const client = PlatformFactory.getClient(interaction.workspace.platform || "generic", {
+                    accessToken,
+                    rateLimitFn: checkOutboundRateLimit,
+                });
+
+                // Use a generic, safe system fallback message.
+                const fallbackMessage = "I'm having a little trouble connecting to my system right now. Let me pass this to our human team and they'll get back to you shortly!";
+
+                await client.send({
+                    to: interaction.authorId,
+                    text: fallbackMessage,
+                    replyToMessageId: interaction.externalId,
+                    workspaceId
+                });
+                console.log(`[Processor] 🛑 Dispatched graceful degradation fallback for interaction ${interactionId}`);
+            }
+        } catch (dispatchErr) {
+            console.error("[Processor] Graceful degradation dispatch also failed:", dispatchErr);
+        }
+
         throw err;
     }
 
@@ -162,9 +238,7 @@ export async function processInteraction(interactionId: string) {
                 const allCategories = [...currentCategories, ...newCategories];
                 const capped = allCategories.slice(-10);
                 const updatedPrefs = capped.join(', ');
-                await db.update(customers)
-                    .set({ preferencesSummary: updatedPrefs })
-                    .where(eq(customers.id, customer.id));
+                await updateCustomerPreferences(customer.id, updatedPrefs);
             }
         } catch (err) {
             console.error("[Processor] Failed to update preferences summary:", err);
@@ -184,7 +258,7 @@ export async function processInteraction(interactionId: string) {
                 customerPlatformId: interaction.authorId || "",
                 interactionId,
                 customerMessage: interaction.content,
-                createOrderAndNotify: createOrderAndNotify
+                createOrderAndNotify: createOrderTransaction
             });
             toolLogs.push(tr.message);
 
@@ -218,12 +292,7 @@ export async function processInteraction(interactionId: string) {
         try {
             let customerId: string | null = null;
             if (interaction.authorId) {
-                const cust = await db.query.customers.findFirst({
-                    where: and(
-                        eq(customers.workspaceId, workspaceId),
-                        eq(customers.platformId, interaction.authorId),
-                    ),
-                });
+                const cust = await findCustomerByPlatformId(workspaceId, interaction.authorId);
                 customerId = cust?.id || null;
             }
 
@@ -286,7 +355,7 @@ export async function processInteraction(interactionId: string) {
 
     // 7️⃣ Database Update (merge into existing meta — don't overwrite)
     const existingMeta = (interaction.meta as Record<string, any>) || {};
-    await db.update(interactions).set({
+    await updateInteractionStatus(interactionId, {
         response: reply,
         status: finalStatus,
         meta: {
@@ -299,9 +368,8 @@ export async function processInteraction(interactionId: string) {
             confidenceSignals,
             dispatchSuccess,
             orchestratorVersion: "v1",
-        },
-        updatedAt: new Date(),
-    }).where(eq(interactions.id, interactionId));
+        }
+    });
 
     // 8️⃣ System-level action dispatch — CREATE NOTIFICATIONS
 
@@ -310,23 +378,18 @@ export async function processInteraction(interactionId: string) {
     // Appointments → start multi-turn collection flow (state machine)
     if (suggestedActions.includes("appointment_request") && !actuallyEscalate && customer) {
         try {
-            await db.update(customers).set({
-                conversationState: "COLLECTING_SERVICE",
-                conversationContext: {
-                    collectionType: "appointment",
-                    workspaceId,
-                    interactionId,
-                    customerName: interaction.authorName || interaction.authorId || "Unknown",
-                    customerPlatformId: interaction.authorId || "",
-                    customerId: customer.id,
-                    customerMessage: interaction.content,
-                },
-                updatedAt: new Date(),
-            }).where(eq(customers.id, customer.id));
+            await updateCustomerConversationState(customer.id, "COLLECTING_SERVICE", {
+                collectionType: "appointment",
+                workspaceId,
+                interactionId,
+                customerName: interaction.authorName || interaction.authorId || "Unknown",
+                customerPlatformId: interaction.authorId || "",
+                customerId: customer.id,
+                customerMessage: interaction.content,
+            });
             const rawReply = "I'd love to help you book that! What service are you looking for?";
             reply = await translateSystemMessage(workspaceId, interaction.authorId, interactionId, rawReply);
-            // ARCH-3 FIX: Write the modified reply back to DB (was missing before)
-            await db.update(interactions).set({ response: reply, updatedAt: new Date() }).where(eq(interactions.id, interactionId));
+            await updateInteractionStatus(interactionId, { response: reply });
         } catch (err) {
             console.error("[Processor] Failed to start appointment collection:", err);
         }
@@ -335,23 +398,18 @@ export async function processInteraction(interactionId: string) {
     // Call requests → start multi-turn collection flow (state machine)
     if (suggestedActions.includes("call_request") && !actuallyEscalate && customer) {
         try {
-            await db.update(customers).set({
-                conversationState: "COLLECTING_PHONE",
-                conversationContext: {
-                    collectionType: "call_request",
-                    workspaceId,
-                    interactionId,
-                    customerName: interaction.authorName || interaction.authorId || "Unknown",
-                    customerPlatformId: interaction.authorId || "",
-                    customerId: customer.id,
-                    customerMessage: interaction.content,
-                },
-                updatedAt: new Date(),
-            }).where(eq(customers.id, customer.id));
+            await updateCustomerConversationState(customer.id, "COLLECTING_PHONE", {
+                collectionType: "call_request",
+                workspaceId,
+                interactionId,
+                customerName: interaction.authorName || interaction.authorId || "Unknown",
+                customerPlatformId: interaction.authorId || "",
+                customerId: customer.id,
+                customerMessage: interaction.content,
+            });
             const rawReply = "Of course! What's the best phone number to reach you?";
             reply = await translateSystemMessage(workspaceId, interaction.authorId, interactionId, rawReply);
-            // ARCH-3 FIX: Write the modified reply back to DB (was missing before)
-            await db.update(interactions).set({ response: reply, updatedAt: new Date() }).where(eq(interactions.id, interactionId));
+            await updateInteractionStatus(interactionId, { response: reply });
         } catch (err) {
             console.error("[Processor] Failed to start call collection:", err);
         }
@@ -384,116 +442,7 @@ export async function processInteraction(interactionId: string) {
     return reply;
 }
 
-// ── Order Creation & Proactive Coach Notification ────────────────────────────
-
-interface CreateOrderInput {
-    workspaceId: string;
-    interactionId: string;
-    customerId: string | null;
-    customerName: string;
-    customerPlatformId: string;
-    customerMessage: string;
-    type: "order" | "appointment" | "call_request";
-    // Multi-turn collected fields
-    serviceType?: string;
-    preferredTime?: string;
-    phoneNumber?: string;
-    customerNote?: string;
-}
-
-/**
- * Create a pending order/booking and proactively notify the seller via:
- * 1. Coach conversation message (coach "wakes up")
- * 2. System notification (visible in notification bell)
- */
-async function createOrderAndNotify(input: CreateOrderInput): Promise<void> {
-    const typeLabels: Record<string, { emoji: string; label: string }> = {
-        order: { emoji: "🛒", label: "New Order" },
-        appointment: { emoji: "📅", label: "Appointment Request" },
-        call_request: { emoji: "📞", label: "Call Request" },
-    };
-    const { emoji, label } = typeLabels[input.type] || typeLabels.order;
-
-    // All 3 inserts wrapped in a transaction — all-or-nothing
-    const order = await db.transaction(async (tx: any) => {
-        // 1. Create the order record
-        const [newOrder] = await tx.insert(orders).values({
-            workspaceId: input.workspaceId,
-            customerId: input.customerId,
-            interactionId: input.interactionId,
-            customerName: input.customerName,
-            customerPlatformId: input.customerPlatformId,
-            customerMessage: input.customerMessage,
-            status: "pending",
-            customerNote: input.customerNote || (input.type !== "order" ? input.type : undefined),
-            serviceType: input.serviceType || undefined,
-            preferredTime: input.preferredTime || undefined,
-            phoneNumber: input.phoneNumber || undefined,
-        }).returning();
-
-        // 2. Coach "wakes up" — inject a proactive message into coach conversation
-        const coachMessage = [
-            `${emoji} **${label} from ${input.customerName}!**`,
-            ``,
-            `Customer said: "${input.customerMessage.substring(0, 200)}"`,
-            ``,
-            `📋 Order ID: \`${newOrder.id.substring(0, 8)}\``,
-            ``,
-            `Reply **"confirm ${newOrder.id.substring(0, 8)}"** to confirm, or **"reject ${newOrder.id.substring(0, 8)}"** to reject.`,
-        ].join("\n");
-
-        await tx.insert(coachConversations).values({
-            workspaceId: input.workspaceId,
-            role: "coach",
-            content: coachMessage,
-        });
-
-        // 3. System notification (visible in notification bell)
-        await tx.insert(interactions).values({
-            workspaceId: input.workspaceId,
-            sourceId: "order_system",
-            externalId: `order-${newOrder.id}-${Date.now()}`,
-            authorId: "system_architect",
-            authorName: "Order System",
-            content: `${label}: "${input.customerMessage.substring(0, 200)}"`,
-            response: `${emoji} ${label} from ${input.customerName}!\n\nCustomer: "${input.customerMessage.substring(0, 200)}"\n\nUse the AI Coach to confirm or reject this ${input.type}.`,
-            status: "ACTION_REQUIRED",
-            meta: {
-                orderType: input.type,
-                orderId: newOrder.id,
-                originalInteractionId: input.interactionId,
-            },
-        });
-        return newOrder;
-    });
-
-    console.log(`[Processor] ${emoji} Created ${input.type} ${order.id} for workspace ${input.workspaceId}`);
-
-    // 4. Real-time push notification to Seller Dashboard via Dragonfly SSE
-    if (isDragonflyAvailable() && dragonfly) {
-        try {
-            const workspace = await db.query.workspaces.findFirst({
-                where: eq(workspaces.id, input.workspaceId),
-                columns: { userId: true }
-            });
-
-            if (workspace?.userId) {
-                await dragonfly.publish('realtime_notifications', JSON.stringify({
-                    type: 'new_order',
-                    userId: workspace.userId,
-                    data: {
-                        orderId: order.id,
-                        type: input.type,
-                        customerName: input.customerName,
-                        message: input.customerMessage
-                    }
-                }));
-            }
-        } catch (err) {
-            console.error(`[Processor] Failed to send real-time notification for order ${order.id}:`, err);
-        }
-    }
-}
+// Code moved to packages/domain/src/orders/dao.ts
 
 // ── System Event Handling ───────────────────────────────────────────────────
 
@@ -508,10 +457,7 @@ export async function handleSystemNotification(
     coachNote: string | null
 ): Promise<void> {
     // 1. Fetch the original interaction to get routing/context info
-    const interaction = await db.query.interactions.findFirst({
-        where: eq(interactions.id, originalInteractionId),
-        with: { workspace: true },
-    });
+    const interaction = await getInteractionWithRelations(originalInteractionId);
     if (!interaction || !interaction.workspace || !interaction.authorId) {
         console.warn(`[SystemNotification] Could not route notification for interaction ${originalInteractionId}`);
         return;
@@ -519,21 +465,17 @@ export async function handleSystemNotification(
 
     const { workspaceId, authorId } = interaction;
 
-    // 2. Fetch history using the same query pattern as the orchestrator
-    const past = await db.select().from(interactions)
-        .where(and(
-            eq(interactions.workspaceId, workspaceId),
-            eq(interactions.authorId, authorId),
-        ))
-        .orderBy(desc(interactions.createdAt))
-        .limit(10);
+    // 2. Fetch history using the orchestrator helper
+    const historyData = await fetchConversationHistory(
+        workspaceId,
+        authorId,
+        originalInteractionId,
+        10
+    );
 
     const history: { role: "user" | "assistant" | "system", content: string }[] = [];
-    past.reverse().forEach((h: any) => {
-        history.push({ role: "user", content: h.content });
-        if (h.response) {
-            history.push({ role: "assistant", content: h.response });
-        }
+    historyData.forEach((h: any) => {
+        history.push({ role: h.role, content: h.content });
     });
 
     // 3. Construct the prompt
@@ -550,7 +492,7 @@ export async function handleSystemNotification(
         const ai = await getAIService(workspaceId, "customer");
         const aiResponse = await ai.chat({
             systemPrompt: "You are the helpful AI assistant for this business. You are conveying an update to the customer based on a system event. Keep it friendly, short, and to the point. Address the seller note if it exists.",
-            history,
+            history: history as any, // Cast purely for the type boundary
             userMessage: "Acknowledge the system event and tell the customer.",
             temperature: 0.4,
             maxTokens: 150,
@@ -561,7 +503,7 @@ export async function handleSystemNotification(
         // 5. Build platform client and send the message
         let accessToken: string | undefined;
         if (interaction.workspace.accessToken) {
-            try { accessToken = decrypt(interaction.workspace.accessToken); }
+            try { accessToken = decrypt(interaction.workspace.accessToken as string); }
             catch { /* ignore */ }
         }
 
@@ -573,22 +515,20 @@ export async function handleSystemNotification(
         await client.send({
             to: authorId,
             text: reply,
-            replyToMessageId: interaction.externalId,
+            replyToMessageId: interaction.externalId as string,
             workspaceId
         });
 
         // 6. Record this as a new interaction so the bot remembers it!
-        await db.insert(interactions).values({
+        await saveSystemEventInteraction(
             workspaceId,
-            sourceId: "system_event",
-            externalId: `sys-${Date.now()}`,
+            originalInteractionId,
             authorId,
-            authorName: interaction.authorName, // Keep same author details
-            content: `(System Event: ${systemEventMsg}${coachNote ? ` Note: ${coachNote}` : ''})`,
-            response: reply,
-            status: "PROCESSED",
-            meta: { isSystemNotification: true, originalInteractionId },
-        });
+            interaction.authorName as string | null,
+            systemEventMsg,
+            reply,
+            coachNote
+        );
 
     } catch (err) {
         console.error(`[SystemNotification] Failed to generate/send customer notification:`, err);

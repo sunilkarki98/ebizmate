@@ -1,5 +1,5 @@
 import { db } from "@ebizmate/db";
-import { items, posts, workspaces } from "@ebizmate/db";
+import { items, posts, workspaces, itemRelations } from "@ebizmate/db";
 import { cosineDistance, and, eq, ne, sql, not, inArray, gt, desc } from "drizzle-orm";
 import { getAIService } from "./factory.js";
 import { PlatformFactory, decrypt } from "@ebizmate/shared";
@@ -126,8 +126,15 @@ Output: JSON array of candidate IDs that are related.
 
                 // 4️⃣ Update DB item
                 await db.update(items)
-                    .set({ relatedItemIds: mergedRelatedIds, isVerified: true, updatedAt: new Date() })
+                    .set({ isVerified: true, updatedAt: new Date() })
                     .where(eq(items.id, item.id));
+
+                // 5️⃣ Insert into junction table
+                if (mergedRelatedIds.length > 0) {
+                    await db.insert(itemRelations)
+                        .values(mergedRelatedIds.map(rId => ({ itemId: item.id, relatedItemId: rId })))
+                        .onConflictDoNothing();
+                }
 
                 console.log(`[Coach] Linked "${item.name}" → ${mergedRelatedIds.length} related items`);
 

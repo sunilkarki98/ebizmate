@@ -1,7 +1,7 @@
 import { Controller, Put, Get, Body, UseGuards, Req } from '@nestjs/common';
 import { SettingsService } from './settings.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { UpdateIdentityDto, UpdateAiSettingsDto, UpdateProfileDto } from '@ebizmate/contracts';
+import { UpdateIdentityDto, UpdateAiSettingsDto, UpdateProfileDto, UpdateAutopilotSettings } from '@ebizmate/contracts';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
 @Controller('settings')
@@ -41,5 +41,13 @@ export class SettingsController {
         @Body() dto: UpdateAiSettingsDto
     ) {
         return this.settingsService.updateAiSettings(req.user.userId, dto);
+    }
+
+    @Put('autopilot')
+    async updateAutopilotSettings(
+        @Req() req: AuthenticatedRequest,
+        @Body() dto: UpdateAutopilotSettings
+    ) {
+        return this.settingsService.updateAutopilotSettings(req.user.userId, dto);
     }
 }

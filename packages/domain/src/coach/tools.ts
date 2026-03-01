@@ -168,6 +168,46 @@ const updateConfigTool: CoachTool = {
     }
 };
 
+const updateAutopilotTool: CoachTool = {
+    name: "update_autopilot",
+    description: "Update the Customer Bot autopilot settings (Time-based 'After Hours' or Capacity-based 'Overflow' routing). Call this if the user asks you to take breaks or change when you reply.",
+    parameters: {
+        type: "object",
+        properties: {
+            autopilotMode: { type: "string", enum: ["ALWAYS_ON", "AFTER_HOURS", "OVERFLOW", "OFF"], description: "The mode to operate in" },
+            timezone: { type: "string", description: "Timezone identifier (e.g. America/New_York)" },
+            businessHoursStart: { type: "string", description: "24-hour start time (e.g. 09:00)" },
+            businessHoursEnd: { type: "string", description: "24-hour end time (e.g. 17:00)" },
+            maxHumanCapacity: { type: "number", description: "Number of active chats before AI overflow triggers" }
+        }
+    },
+    schema: z.object({
+        autopilotMode: z.enum(["ALWAYS_ON", "AFTER_HOURS", "OVERFLOW", "OFF"]).optional(),
+        timezone: z.string().optional(),
+        businessHoursStart: z.string().regex(/^([01]\d|2[0-3]):?([0-5]\d)$/).optional(),
+        businessHoursEnd: z.string().regex(/^([01]\d|2[0-3]):?([0-5]\d)$/).optional(),
+        maxHumanCapacity: z.number().min(1).max(50).optional()
+    }),
+    execute: async (args, ctx) => {
+        const { workspaceId } = ctx;
+        const updates: Record<string, any> = {};
+
+        if (args.autopilotMode) updates.autopilotMode = args.autopilotMode;
+        if (args.timezone) updates.timezone = args.timezone;
+        if (args.businessHoursStart) updates.businessHoursStart = args.businessHoursStart;
+        if (args.businessHoursEnd) updates.businessHoursEnd = args.businessHoursEnd;
+        if (args.maxHumanCapacity !== undefined) updates.maxHumanCapacity = args.maxHumanCapacity;
+
+        if (Object.keys(updates).length) {
+            updates.updatedAt = new Date();
+            await db.update(workspaces).set(updates).where(eq(workspaces.id, workspaceId));
+            return `✅ Autopilot settings updated: ${Object.keys(updates).filter(k => k !== 'updatedAt').join(', ')}`;
+        }
+
+        return "ℹ️ No autopilot changes were needed.";
+    }
+};
+
 const listItemsTool: CoachTool = {
     name: "list_items",
     description: "List all items currently in the Knowledge Base. Use this before creating items to avoid duplicates, or to answer the user when they ask what you already know.",
@@ -798,6 +838,7 @@ const grantDiscountTool: CoachTool = {
 export const TOOL_REGISTRY: CoachTool[] = [
     createItemTool,
     updateConfigTool,
+    updateAutopilotTool,
     listItemsTool,
     deleteItemTool,
     searchItemsTool,

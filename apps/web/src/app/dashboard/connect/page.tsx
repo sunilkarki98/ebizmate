@@ -49,6 +49,20 @@ export default async function ConnectPage() {
                     isConnected={workspace?.platform === 'tiktok' && !!workspace?.accessToken}
                     oauthUrl="/api/auth/connect/tiktok"
                 />
+                <IntegrationCard
+                    platform="whatsapp"
+                    title="WhatsApp Business"
+                    description="Connect your WhatsApp Business for automated customer support."
+                    isConnected={workspace?.platform === 'whatsapp' && !!workspace?.accessToken}
+                    oauthUrl="/api/auth/connect/whatsapp"
+                />
+                <IntegrationCard
+                    platform="facebook"
+                    title="Facebook Pages"
+                    description="Connect your Facebook Page for post comments and inbox."
+                    isConnected={workspace?.platform === 'facebook_pages' && !!workspace?.accessToken}
+                    oauthUrl="/api/auth/connect/facebook_pages"
+                />
             </div>
 
             <div className="grid gap-6">

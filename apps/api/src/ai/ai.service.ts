@@ -25,10 +25,14 @@ import type {
 export class AiService {
     private readonly logger = new Logger(AiService.name);
 
-    constructor(@InjectQueue('ai') private readonly aiQueue: Queue) { }
+    constructor(
+        @InjectQueue('ai-process') private readonly aiProcessQueue: Queue,
+        @InjectQueue('ai-ingest') private readonly aiIngestQueue: Queue,
+        @InjectQueue('ai-batch') private readonly aiBatchQueue: Queue,
+    ) { }
 
     async processInteraction(interactionId: string): Promise<{ success: boolean }> {
-        await this.aiQueue.add('process', { interactionId });
+        await this.aiProcessQueue.add('process', { interactionId });
         this.logger.log(`Queued interaction processing: ${interactionId}`);
         return { success: true };
     }
@@ -82,14 +86,14 @@ export class AiService {
     }
 
     async ingestPost(postId: string): Promise<{ success: boolean }> {
-        await this.aiQueue.add('ingest', { postId });
+        await this.aiIngestQueue.add('ingest', { postId });
         this.logger.log(`Queued post ingestion: ${postId}`);
         return { success: true };
     }
 
     async batchIngest(userId: string, dto: BatchIngestDto): Promise<{ success: boolean; queued: boolean }> {
         const workspace = await getWorkspace(userId);
-        await this.aiQueue.add('upload_batch', {
+        await this.aiBatchQueue.add('upload_batch', {
             workspaceId: workspace.id,
             sourceId: dto.sourceId,
             items: dto.items,
@@ -105,7 +109,7 @@ export class AiService {
     async teachAndReply(userId: string, dto: TeachReplyDto) {
         const result = await teachAndReply(userId, dto);
         if (result.newItemId) {
-            await this.aiQueue.add('refresh_item_embedding', { itemId: result.newItemId });
+            await this.aiIngestQueue.add('refresh_item_embedding', { itemId: result.newItemId });
             this.logger.log(`Queued background embedding for learned item: ${result.newItemId}`);
         }
         return result;

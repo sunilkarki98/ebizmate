@@ -13,35 +13,42 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             // leak via server logs, Referer headers, and browser history.
             jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
             ignoreExpiration: false,
-            // Dynamically select the secret based on the token issuer
+            // SEC-3 FIX: Never use jwt.decode() to determine execution paths,
+            // as it trusts unverified, user-provided data. Instead, we cryptographically
+            // prove the signature against our known secrets.
             secretOrKeyProvider: (request, rawJwtToken, done) => {
-                try {
-                    const decoded = jwt.decode(rawJwtToken) as any;
+                const supabaseSecret = this.configService.get<string>('SUPABASE_JWT_SECRET');
+                const nextAuthSecret = this.configService.get<string>('NEXTAUTH_SECRET');
 
-                    if (!decoded) {
-                        return done(new Error('Invalid token format'), null);
+                let validSecret: string | null = null;
+
+                // Try Supabase secret first
+                if (supabaseSecret) {
+                    try {
+                        // ignoreExpiration: true is strictly used here to allow the passport-jwt 
+                        // framework to handle the actual expiration check and throw the correct 
+                        // 'Unauthorized' error later. We only care about proving the signature here.
+                        jwt.verify(rawJwtToken, supabaseSecret, { ignoreExpiration: true });
+                        validSecret = supabaseSecret;
+                    } catch (e) {
+                        // Signature invalid for Supabase
                     }
+                }
 
-                    // Determine token origin by checking the issuer claim.
-                    // Supabase tokens always have an `iss` containing the project URL.
-                    const issuer = decoded.iss || '';
-                    const isSupabaseToken = issuer.includes('supabase') || !!decoded.app_metadata;
-
-                    if (isSupabaseToken) {
-                        const secret = this.configService.get<string>('SUPABASE_JWT_SECRET');
-                        if (!secret) {
-                            return done(new Error('SUPABASE_JWT_SECRET is not configured'), null);
-                        }
-                        done(null, secret);
-                    } else {
-                        const nextAuthSecret = this.configService.get<string>('NEXTAUTH_SECRET');
-                        if (!nextAuthSecret) {
-                            return done(new Error('NEXTAUTH_SECRET environment variable is required for JWT authentication'), null);
-                        }
-                        done(null, nextAuthSecret);
+                // If Supabase failed, try NextAuth
+                if (!validSecret && nextAuthSecret) {
+                    try {
+                        jwt.verify(rawJwtToken, nextAuthSecret, { ignoreExpiration: true });
+                        validSecret = nextAuthSecret;
+                    } catch (e) {
+                        // Signature invalid for NextAuth
                     }
-                } catch (e) {
-                    done(e, null);
+                }
+
+                if (validSecret) {
+                    done(null, validSecret);
+                } else {
+                    done(new Error('Invalid token signature or missing secret configuration'), null);
                 }
             },
         });

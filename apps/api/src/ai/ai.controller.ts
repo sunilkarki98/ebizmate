@@ -2,6 +2,8 @@ import { Controller, Post, Get, Body, UseGuards, Req, Param, ForbiddenException,
 import { AiService } from './ai.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { WorkspacePolicyGuard } from '../common/guards/workspace-policy.guard';
+import { AdminGuard } from '../auth/admin.guard';
+import { WorkspaceOwnershipGuard } from '../common/guards/workspace-ownership.guard';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 import {
     ProcessInteractionDto,
@@ -12,9 +14,11 @@ import {
     BatchIngestDto,
     TeachReplyDto,
 } from '@ebizmate/contracts';
+import { db, interactions, posts } from '@ebizmate/db';
+import { eq } from 'drizzle-orm';
 
 @Controller('ai')
-@UseGuards(JwtAuthGuard, WorkspacePolicyGuard)
+@UseGuards(JwtAuthGuard, WorkspacePolicyGuard, WorkspaceOwnershipGuard)
 export class AiController {
     constructor(private readonly aiService: AiService) { }
 
@@ -23,6 +27,17 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Body() dto: ProcessInteractionDto,
     ) {
+        // IDOR check for interaction in body
+        const interaction = await db.query.interactions.findFirst({
+            where: eq(interactions.id, dto.interactionId),
+            columns: { workspaceId: true }
+        });
+
+        if (!interaction) throw new HttpException('Interaction not found', HttpStatus.NOT_FOUND);
+        if (interaction.workspaceId !== req.workspacePolicy?.id) {
+            throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+        }
+
         return this.aiService.processInteraction(dto.interactionId);
     }
 
@@ -104,6 +119,17 @@ export class AiController {
         @Req() req: AuthenticatedRequest,
         @Body() dto: IngestPostDto,
     ) {
+        // IDOR check for post in body
+        const post = await db.query.posts.findFirst({
+            where: eq(posts.id, dto.postId),
+            columns: { workspaceId: true }
+        });
+
+        if (!post) throw new HttpException('Post not found', HttpStatus.NOT_FOUND);
+        if (post.workspaceId !== req.workspacePolicy?.id) {
+            throw new HttpException('Forbidden', HttpStatus.FORBIDDEN);
+        }
+
         return this.aiService.ingestPost(dto.postId);
     }
 
@@ -116,6 +142,7 @@ export class AiController {
     }
 
     @Post('test-connection')
+    @UseGuards(AdminGuard)
     async testProviderConnection(@Req() req: AuthenticatedRequest) {
         return this.aiService.testConnection();
     }

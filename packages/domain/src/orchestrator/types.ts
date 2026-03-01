@@ -18,6 +18,7 @@ export const INTENTS = [
     "appointment_request",
     "call_request",
     "complaint",
+    "casual_browsing",
     "greeting",
     "gratitude",
     "unknown",

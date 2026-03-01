@@ -1,5 +1,6 @@
 import { db } from "@ebizmate/db";
-import { aiUsageLog } from "@ebizmate/db";
+import { aiUsageLog, workspaces } from "@ebizmate/db";
+import { eq, sql } from "drizzle-orm";
 
 export async function logUsage(
     workspaceId: string,
@@ -26,7 +27,24 @@ export async function logUsage(
             success,
             errorMessage: errorMessage || null,
         });
+
+        // Update the fast-counter on the workspace to prevent need for SUM queries later
+        await db.update(workspaces)
+            .set({ usedTokens: sql`${workspaces.usedTokens} + ${tokens.input + tokens.output}` })
+            .where(eq(workspaces.id, workspaceId));
+
     } catch (err) {
         console.error("Failed to log AI usage:", err);
+    }
+}
+
+export async function resetMonthlyTokenUsage() {
+    try {
+        console.log("[Billing] Initiating monthly token usage reset for all workspaces...");
+        await db.update(workspaces)
+            .set({ usedTokens: 0, updatedAt: new Date() });
+        console.log("[Billing] Successfully reset token usage for all workspaces.");
+    } catch (err) {
+        console.error("[Billing] Failed to reset monthly token usage:", err);
     }
 }

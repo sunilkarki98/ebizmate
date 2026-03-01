@@ -23,3 +23,4 @@ export * as AdminDomain from './admin/service.js';
 export * as DashboardDomain from './dashboard/service.js';
 export * as CustomerDomain from './customer/service.js';
 export * as AuthDomain from './auth/service.js';
+export * from './services/usage.js';

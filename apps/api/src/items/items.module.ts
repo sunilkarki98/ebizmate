@@ -11,9 +11,11 @@ import { getDragonflyConfig } from '@ebizmate/shared';
         BullModule.forRoot({
             connection: getDragonflyConfig(),
         }),
-        BullModule.registerQueue({
-            name: 'ai',
-        }),
+        BullModule.registerQueue(
+            { name: 'ai-process' },
+            { name: 'ai-ingest' },
+            { name: 'ai-batch' }
+        ),
     ],
     controllers: [ItemsController],
     providers: [ItemsService],

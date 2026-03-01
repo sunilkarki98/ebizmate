@@ -1,0 +1,39 @@
+# Dependencies (will be installed fresh inside container)
+node_modules
+**/node_modules
+
+# Git history (not needed for build)
+.git
+.gitignore
+
+# Build artifacts (will be rebuilt inside container)
+**/dist
+**/.turbo
+**/.next
+.turbo
+
+# IDE & OS files
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Environment files (secrets should NOT be baked into images)
+.env
+.env.*
+!.env.example
+
+# Development files
+*.md
+!README.md
+docker-compose.yml
+deploy/docker-compose.prod.yml
+scripts
+check-*.ts
+diagnose_db.ts
+patch-db*.ts
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+**/__tests__

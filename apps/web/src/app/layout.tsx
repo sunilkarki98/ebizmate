@@ -29,12 +29,21 @@ export const metadata: Metadata = {
     title: "EbizMate — The Autonomous Sales Team for Modern E-Business",
     description: "Give your brand a front-line AI Sales Rep and a back-office AI Coach. EbizMate handles Instagram and TikTok comments, DMs, and sales 24/7.",
     siteName: "EbizMate",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "EbizMate — Turn Every DM Into Revenue",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "EbizMate — Multichannel AI Sales Reps",
     description: "Stop dropping leads in DMs. Deploy EbizMate to auto-reply to comments, fetch products, and close sales perfectly aligned with your brand voice.",
     creator: "@ebizmate",
+    images: ["/og-image.png"],
   },
 };
 

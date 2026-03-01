@@ -23,12 +23,12 @@ export default function AboutPage() {
                 <nav className="flex items-center gap-6">
                     <Link href="/about" className="text-sm font-medium hover:text-primary transition-colors">About</Link>
                     <Link href="/contact" className="text-sm font-medium hover:text-primary transition-colors">Contact</Link>
-                    <div className="flex gap-4">
+                    <div className="flex gap-3 ml-4">
                         <Link href="/signin">
-                            <Button variant="ghost">Log In</Button>
+                            <Button variant="ghost" size="sm">Log In</Button>
                         </Link>
                         <Link href="/dashboard">
-                            <Button>Get Started</Button>
+                            <Button size="sm" className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white">Get Started</Button>
                         </Link>
                     </div>
                 </nav>
@@ -45,54 +45,39 @@ export default function AboutPage() {
 
                     <div className="grid md:grid-cols-2 gap-12 items-center">
                         <div className="space-y-6">
-                            <div className="p-3 bg-primary/10 w-fit rounded-xl text-primary">
-                                <Target className="h-8 w-8" />
-                            </div>
-                            <h2 className="text-3xl font-bold">Why We Built EbizMate</h2>
                             <p className="text-muted-foreground leading-relaxed text-lg">
                                 We noticed a massive gap in the market. Huge enterprise brands have armies of support agents monitoring their social media. Small businesses, boutique shops, and rising creators have... themselves, replying to DMs at 2 AM.
                                 <br /><br />
-                                We built EbizMate to level the playing field using a proprietary <strong>Dual-Agent Architecture</strong>. It’s an AI that doesn't just "chat," but actually understands your inventory, replicates your brand voice, and executes complex sales pipelines deterministically.
+                                We built EbizMate to level the playing field. It's an AI sales assistant that doesn't just "chat", but actually understands your business, replicates your brand voice, and personally guides customers to a sale.
                             </p>
-
-                            <div className="grid grid-cols-2 gap-6 pt-4 border-t">
-                                <div>
-                                    <h4 className="font-bold mb-1">Customer Bot</h4>
-                                    <p className="text-sm text-muted-foreground">Stands on the front-line, instantly replying to comments and DMs to close sales.</p>
-                                </div>
-                                <div>
-                                    <h4 className="font-bold mb-1">Coach Bot</h4>
-                                    <p className="text-sm text-muted-foreground">Lives in your dashboard, helping you ingest knowledge bases and manage workflows.</p>
-                                </div>
-                            </div>
                         </div>
                         <div className="bg-muted/30 p-8 rounded-3xl border shadow-sm h-full flex flex-col justify-center">
                             <ul className="space-y-8">
                                 <li className="flex items-start gap-4">
-                                    <div className="p-3 bg-yellow-500/10 rounded-full">
-                                        <Zap className="h-6 w-6 text-yellow-600 shrink-0" />
+                                    <div className="p-3 bg-violet-100 dark:bg-violet-900/30 rounded-full">
+                                        <Zap className="h-6 w-6 text-violet-600 dark:text-violet-400 shrink-0" />
                                     </div>
                                     <div>
-                                        <h3 className="text-xl font-bold mb-1">Speed Driven Conversion</h3>
+                                        <h3 className="text-xl font-bold mb-1">Instant Replies, Instant Sales</h3>
                                         <p className="text-muted-foreground leading-relaxed">Replying to a customer within 5 minutes increases conversion rates by up to 400%. EbizMate replies in seconds.</p>
                                     </div>
                                 </li>
                                 <li className="flex items-start gap-4">
-                                    <div className="p-3 bg-blue-500/10 rounded-full">
-                                        <Users className="h-6 w-6 text-blue-600 shrink-0" />
+                                    <div className="p-3 bg-indigo-100 dark:bg-indigo-900/30 rounded-full">
+                                        <Users className="h-6 w-6 text-indigo-600 dark:text-indigo-400 shrink-0" />
                                     </div>
                                     <div>
-                                        <h3 className="text-xl font-bold mb-1">Personalization at Scale</h3>
-                                        <p className="text-muted-foreground leading-relaxed">Whether you have 100 followers or 1,000,000. Every single comment gets a tailored, highly contextual response.</p>
+                                        <h3 className="text-xl font-bold mb-1">Custom, On-Brand Experience</h3>
+                                        <p className="text-muted-foreground leading-relaxed">Whether you have 100 followers or 1,000,000. Every single comment gets a tailored, highly contextual response matching your voice.</p>
                                     </div>
                                 </li>
                                 <li className="flex items-start gap-4">
-                                    <div className="p-3 bg-green-500/10 rounded-full">
-                                        <Shield className="h-6 w-6 text-green-600 shrink-0" />
+                                    <div className="p-3 bg-emerald-100 dark:bg-emerald-900/30 rounded-full">
+                                        <Shield className="h-6 w-6 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                     </div>
                                     <div>
-                                        <h3 className="text-xl font-bold mb-1">Zero-Hallucination Safety</h3>
-                                        <p className="text-muted-foreground leading-relaxed">Built on strict vector embeddings. The AI is structurally prevented from making up prices or fake promotions.</p>
+                                        <h3 className="text-xl font-bold mb-1">Accurate Prices, Every Time</h3>
+                                        <p className="text-muted-foreground leading-relaxed">Our AI is strictly bound to your product catalog. It is structurally prevented from making up prices or fake promotions.</p>
                                     </div>
                                 </li>
                             </ul>
@@ -101,15 +86,17 @@ export default function AboutPage() {
                 </div>
             </main>
 
-            <footer className="py-8 border-t bg-muted/20 text-center text-sm text-muted-foreground">
+            <footer className="py-8 border-t text-center text-sm text-muted-foreground">
                 <div className="flex justify-center gap-4 mb-4">
                     <Link href="/privacy" className="hover:text-foreground">Privacy Policy</Link>
+                    <span>•</span>
+                    <Link href="/terms" className="hover:text-foreground">Terms of Service</Link>
                     <span>•</span>
                     <Link href="/about" className="hover:text-foreground">About Us</Link>
                     <span>•</span>
                     <Link href="/contact" className="hover:text-foreground">Contact</Link>
                 </div>
-                <p>&copy; {new Date().getFullYear()} EbizMate Inc. All rights reserved.</p>
+                <p>&copy; {new Date().getFullYear()} EbizMate. All rights reserved.</p>
             </footer>
         </div>
     );

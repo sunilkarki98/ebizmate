@@ -37,6 +37,10 @@ Saves a verified knowledge entry to the Long-Term Knowledge Base.
 Updates workspace configuration fields.
 - Only call this when a field value explicitly changes. Never call it speculatively.
 
+### update_autopilot
+Updates the AI Customer Bot's scheduling and routing rules.
+- Set to BEFORE/AFTER hours mode, OVERFLOW mode (by setting a capacity limit), ALWAYS_ON, or OFF.
+
 ### list_items
 List all items currently in the Knowledge Base.
 

@@ -3,14 +3,45 @@ import { workspaces, posts, customers, interactions } from '@ebizmate/db';
 import { eq, and } from 'drizzle-orm';
 import type { Queue } from 'bullmq';
 import { checkInboundRateLimit } from '@ebizmate/shared';
+import { normalizeWebhookPayload, type NormalizedWebhookEvent } from './normalizer.js';
 
 export async function handleWebhookEvent(platform: string, payload: any, aiQueue: Queue) {
-    const platformUserId = payload.userId || payload.sec_uid || payload.authorId;
-    if (!platformUserId) {
-        console.warn(`Missing user ID in webhook for platform ${platform}`);
+    // EPIC 13: Normalize the raw platform-specific payload into unified events
+    const normalizedEvents = normalizeWebhookPayload(platform, payload);
+
+    if (normalizedEvents.length === 0) {
+        console.warn(`[Normalizer] No events extracted from ${platform} webhook`);
+        return { received: true, events: 0 };
+    }
+
+    const results = [];
+
+    for (const event of normalizedEvents) {
+        try {
+            const result = await processNormalizedEvent(event, aiQueue);
+            results.push(result);
+        } catch (err) {
+            console.error(`[Webhook] Failed to process event from ${event.platform}:`, err);
+            results.push({ error: String(err) });
+        }
+    }
+
+    return { success: true, events: results.length, results };
+}
+
+/**
+ * Process a single normalized webhook event.
+ * This function is entirely platform-agnostic — it only works with the unified shape.
+ */
+async function processNormalizedEvent(event: NormalizedWebhookEvent, aiQueue: Queue) {
+    const { platform, eventType, platformUserId, userName, text, mediaUrl, externalId, parentPostId, rawPayload } = event;
+
+    if (platformUserId === 'unknown') {
+        console.warn(`Missing user ID in ${platform} webhook event`);
         return { error: 'Missing user ID' };
     }
 
+    // Look up workspace by platform user/page ID
     const workspace = await db.query.workspaces.findFirst({
         where: eq(workspaces.platformId, platformUserId),
     });
@@ -19,7 +50,7 @@ export async function handleWebhookEvent(platform: string, payload: any, aiQueue
         return { error: 'Workspace not found' };
     }
 
-    // Early rejection for inactive/blocked workspaces — don't waste queue capacity
+    // Early rejection for inactive/blocked workspaces
     if (workspace.status === 'suspended') {
         return { received: true, blocked: true, reason: 'workspace_suspended' };
     }
@@ -27,47 +58,38 @@ export async function handleWebhookEvent(platform: string, payload: any, aiQueue
         return { received: true, blocked: true, reason: 'ai_blocked' };
     }
 
-    const eventType = payload.type;
-
-    // Content Indexing
-    if (eventType === 'video.publish' || eventType === 'post.create' || eventType === 'media.create') {
-        const videoId = payload.video_id || payload.item_id || payload.post_id;
-        const caption = payload.description || payload.caption || payload.text || '';
-
-        if (videoId) {
+    // Content Indexing (post/video publish events)
+    if (eventType === 'post') {
+        if (externalId) {
             await db.insert(posts).values({
                 workspaceId: workspace.id,
-                platformId: videoId,
-                content: caption,
-                meta: payload,
+                platformId: externalId,
+                content: text,
+                meta: rawPayload,
             }).onConflictDoUpdate({
                 target: posts.platformId,
-                set: { content: caption, updatedAt: new Date() }
+                set: { content: text, updatedAt: new Date() }
             });
-            console.log(`Indexed content: ${videoId}`);
+            console.log(`Indexed content: ${externalId}`);
         }
         return { success: true, type: 'content_indexed' };
     }
 
-    // Interaction Handling
-    if (eventType === 'comment.create' || eventType === 'message.create') {
-        const authorId = payload.userId || 'anonymous';
-
-        if (authorId !== 'anonymous') {
-            const isAllowed = await checkInboundRateLimit(workspace.id, authorId);
+    // Interaction Handling (messages and comments)
+    if (eventType === 'message' || eventType === 'comment') {
+        if (platformUserId !== 'anonymous') {
+            const isAllowed = await checkInboundRateLimit(workspace.id, platformUserId);
             if (!isAllowed) {
-                console.warn(`[RateLimit] Dropping inbound webhook from user ${authorId} (Workspace ${workspace.id})`);
+                console.warn(`[RateLimit] Dropping inbound webhook from user ${platformUserId} (Workspace ${workspace.id})`);
                 return { received: true, blocked: true, reason: 'rate_limit_exceeded' };
             }
         }
 
-        const parentId = payload.video_id || payload.post_id;
         let localPostId = null;
-
-        if (parentId) {
+        if (parentPostId) {
             const parentPost = await db.query.posts.findFirst({
                 where: and(
-                    eq(posts.platformId, parentId),
+                    eq(posts.platformId, parentPostId),
                     eq(posts.workspaceId, workspace.id)
                 ),
             });
@@ -78,33 +100,26 @@ export async function handleWebhookEvent(platform: string, payload: any, aiQueue
 
         // Customer tracking
         let customerId: string | null = null;
-        if (payload.userId) {
+        if (platformUserId) {
             const [customer] = await db.insert(customers).values({
                 workspaceId: workspace.id,
-                platformId: payload.userId,
-                platformHandle: payload.userName || 'unknown',
-                name: payload.userName || 'unknown',
+                platformId: platformUserId,
+                platformHandle: userName || 'unknown',
+                name: userName || 'unknown',
                 lastInteractionAt: new Date(),
             }).onConflictDoUpdate({
                 target: [customers.workspaceId, customers.platformId],
                 set: {
-                    platformHandle: payload.userName || undefined,
+                    platformHandle: userName || undefined,
                     lastInteractionAt: new Date(),
                 }
             }).returning({ id: customers.id });
             customerId = customer?.id || null;
         }
 
-        const externalId = payload.commentId || payload.messageId || `evt-${Date.now()}`;
+        let finalMeta: any = { ...rawPayload, normalizedPlatform: platform };
 
-        let contentText = payload.text || payload.message || '';
-        const mediaUrl = payload.imageUrl || payload.mediaUrl || payload.image_url || payload.media_url || payload.media;
-        let finalMeta: any = { ...payload };
-
-        // PERF-4 FIX: Defer image analysis to the async BullMQ processor.
-        // Previously, analyzeImage() was called here synchronously, blocking the
-        // webhook response while downloading and processing the image via an LLM.
-        // Now we save the raw URL and let the processor handle it.
+        // PERF-4: Defer image analysis to the async BullMQ processor
         if (mediaUrl) {
             finalMeta.hasMedia = true;
             finalMeta.originalMediaUrl = mediaUrl;
@@ -114,12 +129,12 @@ export async function handleWebhookEvent(platform: string, payload: any, aiQueue
         const result = await db.insert(interactions).values({
             workspaceId: workspace.id,
             postId: localPostId,
-            sourceId: parentId || 'unknown',
+            sourceId: parentPostId || 'dm',
             externalId,
-            authorId: payload.userId || 'anonymous',
-            authorName: payload.userName || 'User',
+            authorId: platformUserId,
+            authorName: userName || 'User',
             customerId,
-            content: contentText,
+            content: text,
             meta: finalMeta,
             status: 'PENDING',
         }).onConflictDoNothing({
@@ -128,7 +143,6 @@ export async function handleWebhookEvent(platform: string, payload: any, aiQueue
 
         let interaction;
         if (result.length === 0) {
-            // Conflict occurred - record already exists. Check if it's still stuck in PENDING
             const existing = await db.query.interactions.findFirst({
                 where: and(
                     eq(interactions.workspaceId, workspace.id),
@@ -137,21 +151,19 @@ export async function handleWebhookEvent(platform: string, payload: any, aiQueue
             });
 
             if (!existing || existing.status !== 'PENDING') {
-                console.log(`Duplicate webhook event skipped (already processed or not found): ${externalId}`);
+                console.log(`Duplicate webhook event skipped: ${externalId}`);
                 return { success: true, duplicate: true };
             }
-            // It is PENDING, meaning a previous enqueue attempt failed or it's currently in queue.
-            // We will attempt to enqueue it again. BullMQ will deduplicate using jobId.
             interaction = existing;
-            console.log(`Recovering stuck PENDING webhook event: ${externalId}`);
+            console.log(`Recovering stuck PENDING event: ${externalId}`);
         } else {
             interaction = result[0];
         }
 
-        // Trigger AI Processing async via Queue (Guaranteed Delivery)
+        // Trigger AI Processing via Queue
         try {
             await aiQueue.add('process', { interactionId: interaction.id }, {
-                jobId: interaction.id, // Idempotency key to prevent double queueing
+                jobId: interaction.id,
                 removeOnComplete: true,
                 removeOnFail: false,
                 attempts: 3,
@@ -159,12 +171,11 @@ export async function handleWebhookEvent(platform: string, payload: any, aiQueue
             });
         } catch (err) {
             console.error(`Failed to queue interaction ${interaction.id}:`, err);
-            // Throwing ensures the controller returns 500, causing the external platform to retry the webhook later
             throw new Error(`Queue Failure: ${err instanceof Error ? err.message : String(err)}`);
         }
 
         return { success: true, interactionId: interaction.id };
     }
 
-    return { received: true, type: eventType || 'unknown' };
+    return { received: true, type: eventType };
 }

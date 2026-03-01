@@ -43,6 +43,34 @@
       "when": 1772074286591,
       "tag": "0005_dapper_chronomancer",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1772170967730,
+      "tag": "0006_black_umar",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772171077041,
+      "tag": "0007_breezy_red_shift",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1772214838787,
+      "tag": "0008_furry_thunderbird",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1772242428773,
+      "tag": "0009_third_screwball",
+      "breakpoints": true
     }
   ]
 }

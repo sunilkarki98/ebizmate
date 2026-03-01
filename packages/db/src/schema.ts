@@ -1,6 +1,6 @@
 
 import { pgTable, text, timestamp, json, integer, uniqueIndex, index, boolean, vector, real } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 // --- Auth (Standard NextAuth/Auth.js) ---
 export const users = pgTable("users", {
@@ -12,7 +12,7 @@ export const users = pgTable("users", {
     password: text("password"),
     role: text("role", { enum: ["admin", "user"] }).notNull().default("user"),
     createdAt: timestamp("createdAt").defaultNow(),
-    updatedAt: timestamp("updatedAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()),
 });
 
 export const accounts = pgTable(
@@ -87,14 +87,22 @@ export const workspaces = pgTable("workspaces", {
     allowGlobalAi: boolean("allowGlobalAi").default(true), // If false, user must provide their own key
     aiBlocked: boolean("aiBlocked").default(false), // Hard kill switch — blocks ALL AI including BYOK
 
+    // Autopilot Controls
+    autopilotMode: text("autopilotMode", { enum: ["ALWAYS_ON", "AFTER_HOURS", "OVERFLOW", "OFF"] }).default("ALWAYS_ON"),
+    timezone: text("timezone").default("UTC"), // e.g. "UTC" or "America/New_York"
+    businessHoursStart: text("businessHoursStart").default("09:00"), // 24hr format
+    businessHoursEnd: text("businessHoursEnd").default("17:00"), // 24hr format
+    maxHumanCapacity: integer("maxHumanCapacity").default(5), // Trigger AI if active chats > this number
+
     // Plan & Usage Limits
     plan: text("plan", { enum: ["free", "paid"] }).default("free"),
     status: text("status", { enum: ["active", "suspended", "past_due"] }).default("active"),
     trialEndsAt: timestamp("trialEndsAt").defaultNow(), // Defaults to creation time, logic will add 7 days
     customUsageLimit: integer("customUsageLimit"), // Null = use plan default. 50000 etc.
+    usedTokens: integer("usedTokens").default(0), // High-performance counter for usage tracking
 
     createdAt: timestamp("createdAt").defaultNow(),
-    updatedAt: timestamp("updatedAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()),
 }, (table) => {
     return {
         userIdx: index("workspaces_user_idx").on(table.userId),
@@ -126,13 +134,29 @@ export const items = pgTable("items", {
     embeddingModel: text("embeddingModel"), // Track which model generated the embedding
 
     createdAt: timestamp("createdAt").defaultNow(),
-    updatedAt: timestamp("updatedAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()),
     expiresAt: timestamp("expiresAt"), // null = never expires; set for time-limited knowledge (sales, events)
 }, (table) => {
     return {
         sourceIdx: index("items_sourceId_idx").on(table.sourceId),
         workspaceIdx: index("items_workspaceId_idx").on(table.workspaceId),
         embeddingIdx: index("items_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+        // Add pg_trgm indices for fast ilike keyword searches (prevents 100% CPU lockups under load)
+        nameTrgmIdx: index("items_name_trgm_idx").using("gin", table.name.op("gin_trgm_ops")),
+        contentTrgmIdx: index("items_content_trgm_idx").using("gin", table.content.op("gin_trgm_ops")),
+    };
+});
+
+// Normalized Junction Table for item relationships (fixes JSON array full table scans)
+import { primaryKey } from "drizzle-orm/pg-core";
+
+export const itemRelations = pgTable("item_relations", {
+    itemId: text("itemId").notNull().references(() => items.id, { onDelete: "cascade" }),
+    relatedItemId: text("relatedItemId").notNull().references(() => items.id, { onDelete: "cascade" }),
+}, (table) => {
+    return {
+        pk: primaryKey({ columns: [table.itemId, table.relatedItemId] }),
+        reverseIdx: index("item_relations_reverse_idx").on(table.relatedItemId),
     };
 });
 
@@ -150,7 +174,7 @@ export const posts = pgTable("posts", {
     meta: json("meta"), // Tags, duration, timestamps
 
     createdAt: timestamp("createdAt").defaultNow(),
-    updatedAt: timestamp("updatedAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()),
 }, (table) => {
     return {
         workspaceIdx: index("posts_workspaceId_idx").on(table.workspaceId),
@@ -182,7 +206,7 @@ export const interactions = pgTable("interactions", {
     meta: json("meta"), // Structured metadata (e.g., escalation references, state machine context)
 
     createdAt: timestamp("createdAt").defaultNow(),
-    updatedAt: timestamp("updatedAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()),
 }, (table) => {
     return {
         // Compound index for fast conversation history retrieval
@@ -231,7 +255,7 @@ export const customers = pgTable("customers", {
     needsReviewCount: integer("needsReviewCount").default(0),
 
     createdAt: timestamp("createdAt").defaultNow(),
-    updatedAt: timestamp("updatedAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()),
 }, (table) => {
     return {
         // Ensure one customer record per platform user per workspace
@@ -286,7 +310,7 @@ export const aiSettings = pgTable("ai_settings", {
     retryAttempts: integer("retryAttempts").default(3),
 
     createdAt: timestamp("createdAt").defaultNow(),
-    updatedAt: timestamp("updatedAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()),
 });
 
 // --- AI Usage Tracking ---
@@ -328,7 +352,7 @@ export const feedbackQueue = pgTable("feedback_queue", {
     itemsContext: text("itemsContext"),
     status: text("status", { enum: ["PENDING", "PROCESSED", "DISMISSED"] }).default("PENDING"),
     createdAt: timestamp("createdAt").defaultNow(),
-    updatedAt: timestamp("updatedAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()),
 }, (table) => ({
     workspaceStatusIdx: index("feedback_queue_workspace_status_idx").on(table.workspaceId, table.status),
 }));
@@ -395,7 +419,7 @@ export const orders = pgTable("orders", {
         unitPrice?: number;
         notes?: string;
     }>>(),
-    totalAmount: real("totalAmount"),
+    totalAmount: integer("totalAmount"), // Stored in cents to avoid floating-point math errors
     currency: text("currency").default("NPR"),
 
     // Customer Info (denormalized for quick access)
@@ -424,12 +448,14 @@ export const orders = pgTable("orders", {
 
     // Timestamps
     createdAt: timestamp("createdAt").defaultNow(),
-    updatedAt: timestamp("updatedAt").defaultNow(),
+    updatedAt: timestamp("updatedAt").defaultNow().$onUpdate(() => new Date()),
     confirmedAt: timestamp("confirmedAt"),
     completedAt: timestamp("completedAt"),
 }, (table) => ({
     workspaceStatusIdx: index("orders_workspace_status_idx").on(table.workspaceId, table.status),
     customerIdx: index("orders_customer_idx").on(table.customerId),
+    // Prevent duplicate orders from same interaction if BullMQ retries
+    idempotencyIdx: uniqueIndex("orders_idempotency_idx").on(table.workspaceId, table.interactionId),
 }));
 
 // ==========================================
@@ -449,10 +475,22 @@ export const workspacesRelations = relations(workspaces, ({ one, many }) => ({
     aiSettings: one(aiSettings),
 }));
 
-export const itemsRelations = relations(items, ({ one }) => ({
+export const itemsRelations = relations(items, ({ one, many }) => ({
     workspace: one(workspaces, {
         fields: [items.workspaceId],
         references: [workspaces.id],
+    }),
+    relations: many(itemRelations),
+}));
+
+export const itemRelationsRelations = relations(itemRelations, ({ one }) => ({
+    item: one(items, {
+        fields: [itemRelations.itemId],
+        references: [items.id],
+    }),
+    relatedItem: one(items, {
+        fields: [itemRelations.relatedItemId],
+        references: [items.id],
     }),
 }));
 

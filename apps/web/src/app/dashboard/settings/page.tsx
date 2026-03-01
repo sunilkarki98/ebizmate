@@ -1,5 +1,6 @@
 import { auth, getBackendToken } from "@/lib/auth";
 import { SettingsForm } from "./settings-form";
+import { AutopilotForm } from "./autopilot-form";
 
 export default async function SettingsPage() {
     const session = await auth();
@@ -34,6 +35,7 @@ export default async function SettingsPage() {
 
                 <div className="grid gap-6">
                     <SettingsForm workspace={workspace} />
+                    <AutopilotForm workspace={workspace} />
                 </div>
             </div>
         </div>
