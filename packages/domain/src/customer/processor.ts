@@ -468,12 +468,19 @@ export async function processInteraction(interactionId: string) {
 export async function handleSystemNotification(
     originalInteractionId: string,
     systemEventMsg: string,
-    coachNote: string | null
+    coachNote: string | null,
+    callerWorkspaceId?: string  // TRUST 4 FIX: Optional workspace ownership verification
 ): Promise<void> {
     // 1. Fetch the original interaction to get routing/context info
     const interaction = await getInteractionWithRelations(originalInteractionId);
     if (!interaction || !interaction.workspace || !interaction.authorId) {
         console.warn(`[SystemNotification] Could not route notification for interaction ${originalInteractionId}`);
+        return;
+    }
+
+    // TRUST 4 FIX: Verify caller owns this interaction's workspace
+    if (callerWorkspaceId && interaction.workspaceId !== callerWorkspaceId) {
+        console.warn(`[SystemNotification] Workspace mismatch: caller=${callerWorkspaceId}, interaction=${interaction.workspaceId}. Blocked.`);
         return;
     }
 

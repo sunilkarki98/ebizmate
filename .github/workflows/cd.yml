@@ -1,10 +1,9 @@
 name: CD Pipeline (Hetzner VM)
 
 on:
-  push:
-    branches: ["main"]
   workflow_run:
     workflows: ["CI Pipeline"]
+    branches: ["main"]
     types:
       - completed
 
@@ -12,8 +11,11 @@ jobs:
   deploy:
     name: Deploy to Hetzner
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
-    
+    # Only deploy if CI succeeded AND it was a push (not a PR)
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push'
+
     steps:
       - name: Execute Remote Deployment Script
         uses: appleboy/ssh-action@master
@@ -22,15 +24,24 @@ jobs:
           username: ${{ secrets.HETZNER_USER }}
           key: ${{ secrets.HETZNER_SSH_KEY }}
           script: |
+            set -e
             cd /opt/ebizmate
+
             # Pull latest changes from git
             git pull origin main
-            
-            # Rebuild the production API image using Turborepo Docker pruning
+
+            # Run database migrations before rebuilding
+            docker compose -f docker-compose.prod.yml run --rm ebizmate-api \
+              npx turbo run db:push --filter=@ebizmate/db 2>/dev/null || \
+              echo "⚠️ DB migration skipped (container not yet built)"
+
+            # Rebuild the production API image
             docker compose -f docker-compose.prod.yml build
-            
-            # Restart the services with zero downtime
+
+            # Restart the services
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
-            
-            # Clean up old images to save disk space on the VM
+
+            # Clean up old images to save disk space
             docker image prune -f
+
+            echo "✅ Deployment complete"

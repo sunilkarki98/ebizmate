@@ -426,18 +426,18 @@ const confirmOrderTool: CoachTool = {
     execute: async (args, ctx) => {
         const { workspaceId } = ctx;
 
-        // Find the order (support short ID prefix match via SQL)
+        // TRUST 3 FIX: Fetch up to 2 matches to detect ambiguous prefix
         const matchingOrders = await db.select().from(orders)
             .where(and(
                 eq(orders.workspaceId, workspaceId),
                 eq(orders.status, "pending"),
                 like(orders.id, `${args.order_id}%`)
             ))
-            .limit(1);
+            .limit(2);
 
+        if (matchingOrders.length === 0) return `❌ No pending order found matching "${args.order_id}".`;
+        if (matchingOrders.length > 1) return `⚠️ Multiple orders match "${args.order_id}". Please provide more characters to uniquely identify the order.`;
         const order = matchingOrders[0];
-
-        if (!order) return `❌ No pending order found matching "${args.order_id}".`;
 
         // Confirm the order
         await db.update(orders).set({
@@ -459,7 +459,8 @@ const confirmOrderTool: CoachTool = {
                 await handleSystemNotification(
                     order.interactionId,
                     `The seller has confirmed the customer's ${typeStr}.`,
-                    args.note || null
+                    args.note || null,
+                    workspaceId
                 );
             }
         } catch (err) {
@@ -487,17 +488,18 @@ const rejectOrderTool: CoachTool = {
     execute: async (args, ctx) => {
         const { workspaceId } = ctx;
 
+        // TRUST 3 FIX: Fetch up to 2 matches to detect ambiguous prefix
         const matchingOrders = await db.select().from(orders)
             .where(and(
                 eq(orders.workspaceId, workspaceId),
                 eq(orders.status, "pending"),
                 like(orders.id, `${args.order_id}%`)
             ))
-            .limit(1);
+            .limit(2);
 
+        if (matchingOrders.length === 0) return `❌ No pending order found matching "${args.order_id}".`;
+        if (matchingOrders.length > 1) return `⚠️ Multiple orders match "${args.order_id}". Please provide more characters to uniquely identify the order.`;
         const order = matchingOrders[0];
-
-        if (!order) return `❌ No pending order found matching "${args.order_id}".`;
 
         await db.update(orders).set({
             status: "rejected",
@@ -517,7 +519,8 @@ const rejectOrderTool: CoachTool = {
                 await handleSystemNotification(
                     order.interactionId,
                     `The seller has rejected the customer's ${typeStr}.`,
-                    args.reason || null
+                    args.reason || null,
+                    workspaceId
                 );
             }
         } catch (err) {
@@ -546,17 +549,18 @@ const proposeChangeTool: CoachTool = {
     execute: async (args, ctx) => {
         const { workspaceId } = ctx;
 
+        // TRUST 3 FIX: Fetch up to 2 matches to detect ambiguous prefix
         const matchingOrders = await db.select().from(orders)
             .where(and(
                 eq(orders.workspaceId, workspaceId),
                 eq(orders.status, "pending"),
                 like(orders.id, `${args.order_id}%`)
             ))
-            .limit(1);
+            .limit(2);
 
+        if (matchingOrders.length === 0) return `❌ No pending order found matching "${args.order_id}".`;
+        if (matchingOrders.length > 1) return `⚠️ Multiple orders match "${args.order_id}". Please provide more characters to uniquely identify the order.`;
         const order = matchingOrders[0];
-
-        if (!order) return `❌ No pending order found matching "${args.order_id}".`;
 
         await db.update(orders).set({
             status: "negotiating",
@@ -583,7 +587,8 @@ const proposeChangeTool: CoachTool = {
                 await handleSystemNotification(
                     order.interactionId,
                     `The seller cannot accept the exact request, but proposes this alternative: '${args.proposal}'. Ask the customer if this is acceptable.`,
-                    null
+                    null,
+                    workspaceId
                 );
             }
         } catch (err) {
@@ -793,16 +798,18 @@ const grantDiscountTool: CoachTool = {
         // BUG 3 FIX: Use workspace currency instead of hardcoded $
         const currency = (workspace.settings as any)?.currency || '$';
 
+        // TRUST 3 FIX: Fetch up to 2 matches to detect ambiguous prefix
         const matchingOrders = await db.select().from(orders)
             .where(and(
                 eq(orders.workspaceId, workspaceId),
                 eq(orders.status, "negotiating"), // Customer must be in negotiation state
                 like(orders.id, `${args.order_id}%`)
             ))
-            .limit(1);
+            .limit(2);
 
+        if (matchingOrders.length === 0) return `❌ No negotiating order found matching "${args.order_id}". Note: The order must be in 'negotiating' status.`;
+        if (matchingOrders.length > 1) return `⚠️ Multiple orders match "${args.order_id}". Please provide more characters to uniquely identify the order.`;
         const order = matchingOrders[0];
-        if (!order) return `❌ No negotiating order found matching "${args.order_id}". Note: The order must be in 'negotiating' status.`;
 
         // Calculate old vs new for the notification
         const oldTotal = order.totalAmount || 0;
@@ -829,7 +836,8 @@ const grantDiscountTool: CoachTool = {
                 await handleSystemNotification(
                     order.interactionId,
                     `The seller has GRANTED the requested discount! The new cart total is ${currency}${args.new_total_amount}. Tell the customer the good news and ask if they are ready to check out!`,
-                    args.note || null
+                    args.note || null,
+                    workspaceId
                 );
             }
         } catch (err) {

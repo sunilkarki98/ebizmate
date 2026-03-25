@@ -17,12 +17,15 @@ import type { Queue } from "bullmq";
  * 5. Logs progress & errors robustly
  */
 
-export async function linkAndVerifyKB(workspaceId: string, batchSize = 10) {
-    console.log(`[Coach] Starting KB verification for workspace ${workspaceId}`);
+export async function linkAndVerifyKB(workspaceId: string, maxItems = 10) {
+    console.log(`[Coach] Starting KB verification for workspace ${workspaceId} (maxItems=${maxItems})`);
 
-    // 1️⃣ Fetch all unverified items
+    // COST 3 FIX: Limit total items fetched, not just batch concurrency.
+    // Previously batchSize only controlled parallelism but still processed ALL items.
     const unverifiedItems = await db.query.items.findMany({
         where: and(eq(items.workspaceId, workspaceId), eq(items.isVerified, false)),
+        limit: maxItems,
+        orderBy: desc(items.createdAt), // Process newest first
     });
 
     if (!unverifiedItems.length) {
@@ -40,8 +43,9 @@ export async function linkAndVerifyKB(workspaceId: string, batchSize = 10) {
     }
 
     // 3️⃣ Process items in batches (to prevent rate limit / large prompts)
-    for (let i = 0; i < unverifiedItems.length; i += batchSize) {
-        const batch = unverifiedItems.slice(i, i + batchSize);
+    const BATCH_CONCURRENCY = 5;
+    for (let i = 0; i < unverifiedItems.length; i += BATCH_CONCURRENCY) {
+        const batch = unverifiedItems.slice(i, i + BATCH_CONCURRENCY);
 
         // Fetch candidate items for the entire batch (excluding the batch itself)
         const batchIds = batch.map(b => b.id);

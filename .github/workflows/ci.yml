@@ -28,10 +28,16 @@ jobs:
         run: npm ci
 
       - name: Typecheck
-        run: npx turbo run typecheck
+        run: npx turbo run check-types
 
       - name: Lint
         run: npx turbo run lint
 
       - name: Build
         run: npx turbo run build
+        env:
+          DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/ebizmate"
+          INTERNAL_API_SECRET: "dummy_secret"
+          ENCRYPTION_KEY: "dummy_encryption_key_for_build"
+          NEXT_PUBLIC_API_URL: "http://localhost:3001"
+          NEXT_PUBLIC_APP_URL: "http://localhost:3000"

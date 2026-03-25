@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   ebizmate-api:
     build:
@@ -26,7 +24,7 @@ services:
       dragonfly:
         condition: service_healthy
 
-  ebizmate-dragonfly:
+  dragonfly:
     image: docker.dragonflydb.io/dragonflydb/dragonfly
     container_name: ebizmate-dragonfly
     restart: unless-stopped
@@ -36,7 +34,7 @@ services:
     volumes:
       - dragonfly_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "-a", "${DRAGONFLY_PASSWORD:-strong_default_pass}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
