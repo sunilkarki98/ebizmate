@@ -1,6 +1,10 @@
 import { Processor, WorkerHost, InjectQueue, OnWorkerEvent } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
 import { processInteraction, ingestPost, processBatchIngestion, refreshItemEmbedding, syncHistoricalPosts, summarizeCustomerProfile, processSmartNewProductNotification } from '@ebizmate/domain';
+
+const AI_PROCESS_CONCURRENCY = Number.parseInt(process.env.AI_PROCESS_CONCURRENCY ?? '30', 10);
+const AI_INGEST_CONCURRENCY = Number.parseInt(process.env.AI_INGEST_CONCURRENCY ?? '20', 10);
+const AI_BATCH_CONCURRENCY = Number.parseInt(process.env.AI_BATCH_CONCURRENCY ?? '5', 10);
 import { db, interactions, workspaces } from '@ebizmate/db';
 import { eq } from 'drizzle-orm';
 import { dragonfly, isDragonflyAvailable } from '@ebizmate/shared';
@@ -72,7 +76,7 @@ async function handleDLQ(job: Job, error: Error, queueName: string) {
 // =========================================================================
 // 1. HIGH PRIORITY: Customer Chat & Real-Time Processing
 // =========================================================================
-@Processor('ai-process', { concurrency: 50 })
+@Processor('ai-process', { concurrency: Number.isFinite(AI_PROCESS_CONCURRENCY) && AI_PROCESS_CONCURRENCY > 0 ? AI_PROCESS_CONCURRENCY : 30 })
 export class AiProcessProcessor extends WorkerHost {
     constructor(@InjectQueue('ai-process') private readonly aiQueue: Queue) {
         super();
@@ -166,7 +170,7 @@ export class AiProcessProcessor extends WorkerHost {
 // =========================================================================
 // 2. MEDIUM PRIORITY: Single Ingestions & Maintenance
 // =========================================================================
-@Processor('ai-ingest', { concurrency: 20 })
+@Processor('ai-ingest', { concurrency: Number.isFinite(AI_INGEST_CONCURRENCY) && AI_INGEST_CONCURRENCY > 0 ? AI_INGEST_CONCURRENCY : 20 })
 export class AiIngestProcessor extends WorkerHost {
     constructor(@InjectQueue('ai-ingest') private readonly aiQueue: Queue) {
         super();
@@ -195,7 +199,7 @@ export class AiIngestProcessor extends WorkerHost {
 // =========================================================================
 // 3. LOW PRIORITY: Batch Imports (Prevents starving real-time chats)
 // =========================================================================
-@Processor('ai-batch', { concurrency: 5 }) // Low concurrency to protect DB connection pool
+@Processor('ai-batch', { concurrency: Number.isFinite(AI_BATCH_CONCURRENCY) && AI_BATCH_CONCURRENCY > 0 ? AI_BATCH_CONCURRENCY : 5 })
 export class AiBatchProcessor extends WorkerHost {
     constructor(@InjectQueue('ai-batch') private readonly aiQueue: Queue) {
         super();

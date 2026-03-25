@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { getNotificationsAction, type SystemNotification } from "@/lib/notification-actions";
 import Link from "next/link";
 import { toast } from "sonner";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 
 function timeAgo(date: Date | null): string {
     if (!date) return "";
@@ -73,7 +74,7 @@ export function NotificationBell() {
 
         const connectSSE = async () => {
             try {
-                const apiUrl = process.env['NEXT_PUBLIC_API_URL'] || 'http://localhost:3001';
+                const apiUrl = getNestApiBaseUrl();
 
                 // Fetch JWT for SSE authentication
                 const tokenRes = await fetch('/api/auth/token');

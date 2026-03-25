@@ -182,6 +182,13 @@ export async function processCoachMessage(
         }
     }
 
+    // TRUST 1 FIX: Cap tool calls to prevent runaway LLM from triggering mass operations
+    const MAX_TOOL_CALLS_PER_MESSAGE = 5;
+    if (allToolCalls.length > MAX_TOOL_CALLS_PER_MESSAGE) {
+        console.warn(`[Coach] ⚠️ Capping tool calls from ${allToolCalls.length} to ${MAX_TOOL_CALLS_PER_MESSAGE}`);
+        allToolCalls.length = MAX_TOOL_CALLS_PER_MESSAGE;
+    }
+
     console.log(`[Coach] 🛠️ Total tool calls to execute: ${allToolCalls.length} for workspace ${workspaceId}`);
 
     // 6️⃣ Execute tool calls using the registry

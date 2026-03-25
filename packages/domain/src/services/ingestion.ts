@@ -3,6 +3,7 @@ import { items, posts, workspaces, itemRelations } from "@ebizmate/db";
 import { cosineDistance, and, eq, ne, sql, not, inArray, gt, desc } from "drizzle-orm";
 import { getAIService } from "./factory.js";
 import { PlatformFactory, decrypt } from "@ebizmate/shared";
+import { invalidateWorkspaceCache } from "../orchestrator/semantic-cache.js";
 import type { Queue } from "bullmq";
 
 /**
@@ -144,6 +145,9 @@ Output: JSON array of candidate IDs that are related.
         }));
     }
 
+    // PRINCIPAL AUDIT FIX: Invalidate semantic cache when KB is updated
+    await invalidateWorkspaceCache(workspaceId);
+
     console.log(`[Coach] KB verification and linking completed for workspace ${workspaceId}`);
 }
 
@@ -241,6 +245,28 @@ If no products or useful information are found, output an empty array [].
             console.warn(`[Ingest] Embedding generation failed for "${item.name}":`, embedErr);
         }
 
+        // FIX 4: Dedup check — skip if a semantically near-identical item already exists
+        if (embedding) {
+            try {
+                const similarityExpr = sql<number>`1 - (${cosineDistance(items.embedding, embedding)})`;
+                const duplicates = await db.select({ id: items.id, similarity: similarityExpr })
+                    .from(items)
+                    .where(and(
+                        eq(items.workspaceId, post.workspaceId),
+                        gt(similarityExpr, 0.92),
+                    ))
+                    .limit(1);
+
+                if (duplicates.length > 0) {
+                    console.log(`[Ingest] Skipping duplicate "${item.name}" (similarity: ${duplicates[0].similarity.toFixed(3)})`);
+                    continue;
+                }
+            } catch (dedupErr) {
+                // Non-critical — insert anyway if dedup check fails
+                console.warn(`[Ingest] Dedup check failed for "${item.name}":`, dedupErr);
+            }
+        }
+
         const insertData: any = {
             workspaceId: post.workspaceId,
             sourceId: post.platformId,
@@ -258,5 +284,10 @@ If no products or useful information are found, output an empty array [].
 
         await db.insert(items).values(insertData);
     }
+    // PRINCIPAL AUDIT FIX: Invalidate semantic cache when new items are ingested
+    if (extracted.length > 0) {
+        await invalidateWorkspaceCache(post.workspaceId);
+    }
+
     console.log(`[Ingest] Finished extracting ${extracted.length} items from post ${postId}`);
 }

@@ -2,6 +2,7 @@
 import { headers } from "next/headers";
 import { NextResponse, after } from "next/server";
 import { webhookBodySchema } from "@/lib/validation";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 import crypto from "crypto";
 
 // --- Webhook Signature Verification ---
@@ -85,7 +86,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ platfor
     // Push the validated payload securely to the NestJS API
     after(async () => {
         try {
-            const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
+            const backendUrl = getNestApiBaseUrl();
             const internalSecret = process.env["INTERNAL_API_SECRET"];
             if (!internalSecret) {
                 console.error("INTERNAL_API_SECRET is not set — cannot forward webhook to backend");

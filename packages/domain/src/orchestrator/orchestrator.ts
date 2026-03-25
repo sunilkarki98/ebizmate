@@ -20,6 +20,7 @@ import { classifyIntent } from "./intent-classifier.js";
 import { retrieveKnowledge } from "./knowledge-retriever.js";
 import { generateResponse } from "./response-generator.js";
 import { evaluateConfidence } from "./confidence-evaluator.js";
+import { getSemanticCache, setSemanticCache } from "./semantic-cache.js";
 import type {
     OrchestratorResult,
     WorkspaceContext,
@@ -77,7 +78,24 @@ export async function orchestrate(interactionOrId: string | { id: string; worksp
     // ── 1. Intent Classification ──
     const intentResult = await classifyIntent(ai, interaction.content, history, interactionId);
 
+    // ── 1.5. SEMANTIC CACHE CHECK (Principal Audit Fix) ──
+    // After intent classification, try the embedding-based cache.
+    // If we get a HIT, we skip ALL downstream LLM calls (RAG, response gen, confidence eval).
+    let queryEmbedding: number[] | null = null;
+    try {
+        const embedResult = await ai.embed(interaction.content, interactionId);
+        queryEmbedding = embedResult.embedding;
+
+        const cached = await getSemanticCache(workspaceId, intentResult.intent, queryEmbedding);
+        if (cached) {
+            return cached;
+        }
+    } catch {
+        // Embedding or cache failure is non-critical — continue with normal pipeline
+    }
+
     // ── 2. Knowledge Retrieval (intent-aware & context-aware) ──
+    // BUG 2 FIX: Pass pre-computed embedding to avoid duplicate ai.embed() call
     const knowledge = await retrieveKnowledge(
         ai,
         workspaceId,
@@ -85,6 +103,8 @@ export async function orchestrate(interactionOrId: string | { id: string; worksp
         intentResult.intent,
         interactionId,
         history,
+        8,
+        queryEmbedding ?? undefined,
     );
 
     // ── 2.5. Ambiguity Detection ──
@@ -168,7 +188,7 @@ export async function orchestrate(interactionOrId: string | { id: string; worksp
     const confidenceResult = evaluateConfidence(intentResult, response, knowledge);
 
     // ── 5. Return Structured Result (NO side effects — caller handles escalation) ──
-    return {
+    const result: OrchestratorResult = {
         reply: response.reply,
         intent: intentResult.intent,
         confidence: confidenceResult.finalConfidence,
@@ -179,6 +199,18 @@ export async function orchestrate(interactionOrId: string | { id: string; worksp
         suggestedActions: response.suggestedActions,
         confidenceSignals: confidenceResult.signals,
     };
+
+    // ── 5.5. SEMANTIC CACHE SET (Principal Audit Fix) ──
+    if (queryEmbedding) {
+        // BUG 1 FIX: Never cache tool call responses — they trigger side effects (orders, cart)
+        const hasToolCalls = result.toolCalls && result.toolCalls.length > 0;
+        if (!hasToolCalls) {
+            // Fire-and-forget — don't block the response for caching
+            setSemanticCache(workspaceId, intentResult.intent, queryEmbedding, result).catch(() => { });
+        }
+    }
+
+    return result;
 }
 
 // ── History Helper ──────────────────────────────────────────────────────────
@@ -201,10 +233,17 @@ export async function fetchConversationHistory(
         .limit(maxTurns);
 
     const history: ConversationTurn[] = [];
-    past.reverse().forEach((h: any) => {
-        history.push({ role: "user", content: h.content ? h.content.substring(0, 2000) : "" });
-        history.push({ role: "assistant", content: h.response ? h.response.substring(0, 2000) : "..." });
-    });
+    past.reverse()
+        // BUG 8 FIX: Filter out system-generated interactions that leak into history
+        .filter((h: any) => {
+            if (h.sourceId === "escalation" || h.sourceId === "system") return false;
+            if (h.authorId?.startsWith("system")) return false;
+            return true;
+        })
+        .forEach((h: any) => {
+            history.push({ role: "user", content: h.content ? h.content.substring(0, 2000) : "" });
+            history.push({ role: "assistant", content: h.response ? h.response.substring(0, 2000) : "..." });
+        });
 
     return history;
 }

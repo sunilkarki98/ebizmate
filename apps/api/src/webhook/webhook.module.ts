@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { WebhookController } from './webhook.controller';
 import { WebhookService } from './webhook.service';
+import { InternalSecretGuard } from '../common/guards/internal-secret.guard';
 
 import { BullModule } from '@nestjs/bullmq';
 import { getDragonflyConfig } from '@ebizmate/shared';
@@ -17,6 +18,6 @@ import { getDragonflyConfig } from '@ebizmate/shared';
         ),
     ],
     controllers: [WebhookController],
-    providers: [WebhookService],
+    providers: [WebhookService, InternalSecretGuard],
 })
 export class WebhookModule { }

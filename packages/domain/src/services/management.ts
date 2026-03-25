@@ -203,6 +203,24 @@ export async function teachAndReply(userId: string, dto: TeachReplyDto): Promise
                 }
             }).returning();
             newItemId = newItem.id;
+
+            // FIX 1: Enqueue embedding generation so this taught answer is findable via vector search
+            try {
+                const { getDragonflyConfig } = await import('@ebizmate/shared');
+                const { Queue } = await import('bullmq');
+                const queue = new Queue('ai', { connection: getDragonflyConfig() });
+                await queue.add('refresh_item_embedding', {
+                    itemId: newItem.id
+                }, {
+                    jobId: `refresh-embedding-${newItem.id}`,
+                    removeOnComplete: true,
+                    attempts: 3,
+                    backoff: { type: 'exponential' as const, delay: 5000 }
+                });
+                await queue.close();
+            } catch (qErr) {
+                console.error('[teachAndReply] Failed to enqueue embedding job:', qErr);
+            }
         } catch (err) {
             console.error("Failed to learn from interaction:", err);
         }

@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
+import { isSessionDenied } from '@ebizmate/shared';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -59,8 +60,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             throw new UnauthorizedException('Token payload missing mandatory fields');
         }
 
-        // Normalize payload for the rest of the application
+        // PRINCIPAL AUDIT FIX: Check Redis-backed JWT denylist
+        // If an admin logs out or changes password, their token is immediately revoked.
         const userId = payload.sub || payload.id;
+        const jwtIdentifier = `${userId}:${payload.iat || 'unknown'}`;
+        const isDenied = await isSessionDenied(jwtIdentifier);
+        if (isDenied) {
+            throw new UnauthorizedException('Session has been revoked');
+        }
+
+        // Normalize payload for the rest of the application
         const role = payload.app_metadata?.role || payload.role || 'user';
         const email = payload.email || null;
         const name = payload.name || payload.user_metadata?.full_name || null;

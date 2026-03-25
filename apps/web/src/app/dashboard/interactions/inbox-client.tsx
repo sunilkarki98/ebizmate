@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 import { PlatformIcon } from "@/components/platform-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -60,7 +61,7 @@ export default function InboxClient({ initialCustomers, workspace, backendToken 
         setActiveCustomer(c);
         setLoadingThread(true);
         try {
-            const res = await fetch(`${process.env['NEXT_PUBLIC_API_URL'] || 'http://localhost:3001'}/inbox/customer/${c.platformId}/conversation`, {
+            const res = await fetch(`${getNestApiBaseUrl()}/inbox/customer/${c.platformId}/conversation`, {
                 headers: { "Authorization": `Bearer ${backendToken}` }
             });
             if (res.ok) {
@@ -84,7 +85,7 @@ export default function InboxClient({ initialCustomers, workspace, backendToken 
             setActiveCustomer({ ...activeCustomer, aiPaused: !isCurrentlyPaused });
             setCustomers(customers.map((c: any) => c.id === activeCustomer.id ? { ...c, aiPaused: !isCurrentlyPaused } : c));
 
-            const res = await fetch(`${process.env['NEXT_PUBLIC_API_URL'] || 'http://localhost:3001'}/inbox/customer/${activeCustomer.id}/${action}`, {
+            const res = await fetch(`${getNestApiBaseUrl()}/inbox/customer/${activeCustomer.id}/${action}`, {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${backendToken}` }
             });
@@ -102,7 +103,7 @@ export default function InboxClient({ initialCustomers, workspace, backendToken 
             setCustomers(customers.filter((c: any) => c.id !== activeCustomer.id));
             setActiveCustomer(null);
 
-            await fetch(`${process.env['NEXT_PUBLIC_API_URL'] || 'http://localhost:3001'}/inbox/customer/${activeCustomer.id}/archive`, {
+            await fetch(`${getNestApiBaseUrl()}/inbox/customer/${activeCustomer.id}/archive`, {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${backendToken}` }
             });
@@ -117,7 +118,7 @@ export default function InboxClient({ initialCustomers, workspace, backendToken 
 
         setSending(true);
         try {
-            const res = await fetch(`${process.env['NEXT_PUBLIC_API_URL'] || 'http://localhost:3001'}/inbox/customer/${activeCustomer.id}/message`, {
+            const res = await fetch(`${getNestApiBaseUrl()}/inbox/customer/${activeCustomer.id}/message`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${backendToken}` },
                 body: JSON.stringify({ text: replyText })

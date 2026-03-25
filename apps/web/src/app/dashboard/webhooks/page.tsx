@@ -1,11 +1,12 @@
 import { auth, getBackendToken } from "@/lib/auth";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 import { WebhookSimulatorClient } from "./webhook-simulator";
 
 export default async function WebhooksPage() {
     const session = await auth();
     if (!session?.user?.id) return null;
 
-    const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
+    const backendUrl = getNestApiBaseUrl();
     const backendToken = await getBackendToken();
 
     // 1. Fetch Workspace Info 

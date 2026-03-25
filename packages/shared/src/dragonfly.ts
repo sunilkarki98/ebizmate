@@ -265,3 +265,67 @@ export async function checkIpRateLimit(ip: string): Promise<boolean> {
         return inMemoryRateCheck(key, maxRequests, windowSeconds * 1000).success;
     }
 }
+
+/** Check if a specific workspace is being spammed overall (max 300 requests/minute per workspace) */
+export async function checkTenantRateLimit(workspaceId: string): Promise<boolean> {
+    const key = `rate_limit:tenant:${workspaceId}`;
+    const windowSeconds = 60;
+    const maxRequests = 300;
+
+    try {
+        if (!dragonfly || !isConnected) {
+            return inMemoryRateCheck(key, maxRequests, windowSeconds * 1000).success;
+        }
+        const requests = await dragonfly.incr(key);
+        if (requests === 1) {
+            await dragonfly.expire(key, windowSeconds);
+        }
+        return requests <= maxRequests;
+    } catch (e) {
+        console.error("Tenant Rate Limit Error, using in-memory fallback:", e);
+        return inMemoryRateCheck(key, maxRequests, windowSeconds * 1000).success;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JWT Session Denylist — Principal Audit Fix
+// When an admin logs out or changes password, their JWT "jti" (or "sub + iat")
+// is written here. The JwtStrategy checks this before authorizing any request.
+// ---------------------------------------------------------------------------
+
+const DENYLIST_TTL = 3600; // 1 hour — matches JWT expiry in getBackendToken()
+
+/**
+ * Add a JWT to the denylist. Call this on logout or password change.
+ * @param jwtIdentifier - Unique token identifier (sub + iat, or jti)
+ */
+export async function addToSessionDenylist(jwtIdentifier: string): Promise<void> {
+    try {
+        if (!dragonfly || !isConnected) {
+            // Fallback: use in-memory set
+            _inMemoryLimits.set(`deny:${jwtIdentifier}`, { count: 1, expiresAt: Date.now() + DENYLIST_TTL * 1000 });
+            return;
+        }
+        await dragonfly.setex(`session_deny:${jwtIdentifier}`, DENYLIST_TTL, "1");
+    } catch (err) {
+        console.error("[SessionDenylist] Failed to add to denylist:", err);
+    }
+}
+
+/**
+ * Check if a JWT has been revoked.
+ * @returns true if the token is denied (revoked)
+ */
+export async function isSessionDenied(jwtIdentifier: string): Promise<boolean> {
+    try {
+        if (!dragonfly || !isConnected) {
+            // Check in-memory fallback
+            const entry = _inMemoryLimits.get(`deny:${jwtIdentifier}`);
+            return !!(entry && entry.expiresAt > Date.now());
+        }
+        const result = await dragonfly.get(`session_deny:${jwtIdentifier}`);
+        return result !== null;
+    } catch {
+        return false; // Fail open — don't block legitimate users if Redis is down
+    }
+}

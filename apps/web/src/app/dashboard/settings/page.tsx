@@ -1,4 +1,5 @@
 import { auth, getBackendToken } from "@/lib/auth";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 import { SettingsForm } from "./settings-form";
 import { AutopilotForm } from "./autopilot-form";
 
@@ -6,7 +7,7 @@ export default async function SettingsPage() {
     const session = await auth();
     if (!session?.user?.id) return null;
 
-    const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
+    const backendUrl = getNestApiBaseUrl();
     const backendToken = await getBackendToken();
 
     const wsRes = await fetch(`${backendUrl}/settings/workspace-detailed`, {

@@ -311,7 +311,7 @@ const searchItemsTool: CoachTool = {
             }).from(items)
                 .where(and(
                     eq(items.workspaceId, workspaceId),
-                    like(items.name, `%${args.query}%`)
+                    ilike(items.name, `%${args.query}%`)
                 ))
                 .limit(5);
         }
@@ -420,7 +420,7 @@ const confirmOrderTool: CoachTool = {
         required: ["order_id"]
     },
     schema: z.object({
-        order_id: z.string().min(1).max(100).transform(s => s.trim()),
+        order_id: z.string().min(8, "Order ID must be at least 8 characters").max(100).transform(s => s.trim()),
         note: z.string().max(500).optional(),
     }),
     execute: async (args, ctx) => {
@@ -481,7 +481,7 @@ const rejectOrderTool: CoachTool = {
         required: ["order_id", "reason"]
     },
     schema: z.object({
-        order_id: z.string().min(1).max(100).transform(s => s.trim()),
+        order_id: z.string().min(8, "Order ID must be at least 8 characters").max(100).transform(s => s.trim()),
         reason: z.string().min(1).max(500).transform(s => s.trim()),
     }),
     execute: async (args, ctx) => {
@@ -540,7 +540,7 @@ const proposeChangeTool: CoachTool = {
         required: ["order_id", "proposal"]
     },
     schema: z.object({
-        order_id: z.string().min(1).max(100).transform(s => s.trim()),
+        order_id: z.string().min(8, "Order ID must be at least 8 characters").max(100).transform(s => s.trim()),
         proposal: z.string().min(1).max(500).transform(s => s.trim()),
     }),
     execute: async (args, ctx) => {
@@ -632,6 +632,12 @@ const broadcastMessageTool: CoachTool = {
 
         if (uniqueAuthors.size === 0) {
             return `📭 No customers found who mentioned "${args.keyword}".`;
+        }
+
+        // TRUST 2 FIX: Cap recipients and show warning
+        const MAX_BROADCAST_RECIPIENTS = 50;
+        if (uniqueAuthors.size > MAX_BROADCAST_RECIPIENTS) {
+            return `⚠️ Found ${uniqueAuthors.size} customers matching "${args.keyword}". That's too many to broadcast at once (max ${MAX_BROADCAST_RECIPIENTS}). Please use a more specific keyword to narrow the audience.`;
         }
 
         // Setup platform client
@@ -777,12 +783,15 @@ const grantDiscountTool: CoachTool = {
         required: ["order_id", "new_total_amount"]
     },
     schema: z.object({
-        order_id: z.string().min(1).max(100).transform(s => s.trim()),
+        order_id: z.string().min(8, "Order ID must be at least 8 characters").max(100).transform(s => s.trim()),
         new_total_amount: z.number().min(0),
         note: z.string().max(500).optional(),
     }),
     execute: async (args, ctx) => {
-        const { workspaceId } = ctx;
+        const { workspaceId, workspace } = ctx;
+
+        // BUG 3 FIX: Use workspace currency instead of hardcoded $
+        const currency = (workspace.settings as any)?.currency || '$';
 
         const matchingOrders = await db.select().from(orders)
             .where(and(
@@ -801,7 +810,7 @@ const grantDiscountTool: CoachTool = {
         await db.update(orders).set({
             totalAmount: args.new_total_amount,
             status: "pending", // Move back to pending so they can checkout
-            sellerNote: args.note || `Discount applied. Price reduced from $${oldTotal} to $${args.new_total_amount}`,
+            sellerNote: args.note || `Discount applied. Price reduced from ${currency}${oldTotal} to ${currency}${args.new_total_amount}`,
             updatedAt: new Date(),
         }).where(eq(orders.id, order.id));
 
@@ -819,7 +828,7 @@ const grantDiscountTool: CoachTool = {
                 const { handleSystemNotification } = await import("../customer/processor.js");
                 await handleSystemNotification(
                     order.interactionId,
-                    `The seller has GRANTED the requested discount! The new cart total is $${args.new_total_amount}. Tell the customer the good news and ask if they are ready to check out!`,
+                    `The seller has GRANTED the requested discount! The new cart total is ${currency}${args.new_total_amount}. Tell the customer the good news and ask if they are ready to check out!`,
                     args.note || null
                 );
             }
@@ -827,7 +836,7 @@ const grantDiscountTool: CoachTool = {
             console.warn("[Coach] Failed to trigger system notification for discount:", err);
         }
 
-        return `✅ Discount granted. Order ${order.id.substring(0, 8)} total is now $${args.new_total_amount}. Customer has been notified.`;
+        return `✅ Discount granted. Order ${order.id.substring(0, 8)} total is now ${currency}${args.new_total_amount}. Customer has been notified.`;
     }
 };
 

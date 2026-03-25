@@ -16,10 +16,10 @@ export type ToolResult =
     | { success: true; message: string; systemAction?: "checkout" | "show_carousel"; platformPayload?: any }
     | { success: false; message: string };
 
-function buildCartSummary(context: any): string {
+function buildCartSummary(context: any, currencySymbol: string = "Rs."): string {
     const items = context.cart || [];
     if (items.length === 0) return "Cart is empty.";
-    return items.map((i: any) => `${i.quantity}x ${i.productName} ($${i.price * i.quantity})`).join(", ");
+    return items.map((i: any) => `${i.quantity}x ${i.productName} (${currencySymbol}${i.price * i.quantity})`).join(", ");
 }
 
 export async function executeCustomerTool(
@@ -58,14 +58,27 @@ export async function executeCustomerTool(
                 };
             }
 
-            conversationContext.cart.push(parsed);
+            // BUG 4 FIX: Deduplicate cart items — merge quantities for same product
+            const existingIndex = conversationContext.cart.findIndex(
+                (ci: any) => ci.productId === parsed.productId
+            );
+            if (existingIndex >= 0) {
+                conversationContext.cart[existingIndex].quantity += parsed.quantity;
+            } else {
+                conversationContext.cart.push(parsed);
+            }
 
             await db.update(customers).set({
                 conversationContext,
                 updatedAt: new Date(),
             }).where(eq(customers.id, ctx.customerId));
 
-            const summary = buildCartSummary(conversationContext);
+            // BUG 6 FIX: Get workspace currency
+            const workspace = await db.query.workspaces.findFirst({
+                where: eq(workspaces.id, ctx.workspaceId),
+            });
+            const currency = (workspace?.settings as any)?.currency || "Rs.";
+            const summary = buildCartSummary(conversationContext, currency);
             return {
                 success: true,
                 message: `Excellent! I've gone ahead and added ${parsed.quantity}x ${parsed.productName} to your cart. Current Cart:\n${summary}\nPROMPT RULE: Tell the user you've added it, and IMMEDIATELY ask if they are ready to check out or if they want to keep shopping. Be enthusiastic!`,
@@ -193,8 +206,22 @@ export async function executeCustomerTool(
                 customerNote: notes
             });
 
-            // We must update the DB to place them in NEGOTIATING status
-            // Note: createOrderAndNotify creates it as "pending" initially. We'll update it to "negotiating" where the processor wakes up.
+            // BUG 7 FIX: Update the most recent order to 'negotiating' status
+            // createOrderAndNotify creates it as 'pending', but discount requests need 'negotiating'
+            try {
+                const recentOrder = await db.query.orders.findFirst({
+                    where: and(eq(orders.workspaceId, ctx.workspaceId), eq(orders.customerId, ctx.customerId)),
+                    orderBy: (orders, { desc }) => [desc(orders.createdAt)],
+                });
+                if (recentOrder) {
+                    await db.update(orders).set({
+                        status: "negotiating",
+                        updatedAt: new Date(),
+                    }).where(eq(orders.id, recentOrder.id));
+                }
+            } catch (err) {
+                console.warn("[Tools] Failed to set negotiating status:", err);
+            }
 
             return {
                 success: true,

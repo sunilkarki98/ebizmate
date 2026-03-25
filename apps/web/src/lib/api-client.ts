@@ -1,6 +1,7 @@
 import { auth, getBackendToken } from "@/lib/auth";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 
-const backendUrl = process.env['NEXT_PUBLIC_API_URL'] || "http://localhost:3001";
+const backendUrl = getNestApiBaseUrl();
 
 interface ApiOptions extends RequestInit {
     /** 

@@ -10,9 +10,30 @@ import { db, customers, items, posts, orders, interactions } from '@ebizmate/db'
 import { eq } from 'drizzle-orm';
 
 /**
+ * Path segment → table mapping (first match wins; list most specific routes first).
+ * Prefer matching on `originalUrl` so rewrites/proxies still resolve correctly.
+ */
+const RESOURCE_ROUTE_MAP: Array<{
+    segment: string;
+    // Drizzle table refs share workspaceId + id; union typing is verbose for .from()
+    table: typeof customers;
+    label: string;
+}> = [
+    { segment: '/interaction/', table: interactions as unknown as typeof customers, label: 'Interaction' },
+    { segment: '/interactions/', table: interactions as unknown as typeof customers, label: 'Interaction' },
+    { segment: '/customer/', table: customers, label: 'Customer' },
+    { segment: '/customers/', table: customers, label: 'Customer' },
+    { segment: '/item/', table: items as unknown as typeof customers, label: 'Item' },
+    { segment: '/items/', table: items as unknown as typeof customers, label: 'Item' },
+    { segment: '/post/', table: posts as unknown as typeof customers, label: 'Post' },
+    { segment: '/posts/', table: posts as unknown as typeof customers, label: 'Post' },
+    { segment: '/order/', table: orders as unknown as typeof customers, label: 'Order' },
+    { segment: '/orders/', table: orders as unknown as typeof customers, label: 'Order' },
+];
+
+/**
  * IDOR Protection Guard
- * Automatically secures endpoints that receive a resource ID in the path (e.g. /customers/:id).
- * Verifies that the requested resource actually belongs to the caller's workspace.
+ * Verifies that the resource at `:id` belongs to the caller's workspace.
  */
 @Injectable()
 export class WorkspaceOwnershipGuard implements CanActivate {
@@ -21,41 +42,34 @@ export class WorkspaceOwnershipGuard implements CanActivate {
     async canActivate(context: ExecutionContext): Promise<boolean> {
         const request = context.switchToHttp().getRequest();
         const user = request.user;
-        const resourceId = request.params.id; // Expects ID in URL path (e.g. /resource/:id)
+        const resourceId = request.params.id as string | undefined;
 
         if (!user || !user.userId) {
-            return false; // Handled by JwtAuthGuard ideally
+            return false;
         }
 
-        // We assume WorkspacePolicyGuard ran first and attached the workspace 
-        const workspaceId = request.workspacePolicy?.id;
+        const workspaceId = request.workspacePolicy?.id as string | undefined;
 
         if (!workspaceId) {
             throw new ForbiddenException('No active workspace found for user.');
         }
 
-        // If there's no ID in the path, this guard is effectively a no-op 
-        // (useful if applied at the controller level but some routes are collection-based).
         if (!resourceId) {
             return true;
         }
 
-        const urlPath = request.originalUrl || request.url;
+        const urlPath = (request.originalUrl || request.url || '') as string;
 
         try {
-            // Determine resource type based on URL path routing
-            if (urlPath.includes('/customer/') || urlPath.includes('/customers/')) {
-                await this.verifyOwnership(customers, 'id', resourceId, workspaceId, 'Customer');
-            } else if (urlPath.includes('/item/') || urlPath.includes('/items/')) {
-                await this.verifyOwnership(items, 'id', resourceId, workspaceId, 'Item');
-            } else if (urlPath.includes('/post/') || urlPath.includes('/posts/')) {
-                await this.verifyOwnership(posts, 'id', resourceId, workspaceId, 'Post');
-            } else if (urlPath.includes('/order/') || urlPath.includes('/orders/')) {
-                await this.verifyOwnership(orders, 'id', resourceId, workspaceId, 'Order');
-            } else if (urlPath.includes('/interaction/') || urlPath.includes('/interactions/')) {
-                await this.verifyOwnership(interactions, 'id', resourceId, workspaceId, 'Interaction');
+            const mapping = RESOURCE_ROUTE_MAP.find((m) => urlPath.includes(m.segment));
+            if (mapping) {
+                await this.verifyOwnership(
+                    mapping.table,
+                    resourceId,
+                    workspaceId,
+                    mapping.label,
+                );
             }
-            // Add more resource mappings as needed
 
             return true;
         } catch (err) {
@@ -68,15 +82,15 @@ export class WorkspaceOwnershipGuard implements CanActivate {
     }
 
     private async verifyOwnership(
-        table: any,
-        idColumn: string,
+        table: typeof customers,
         resourceId: string,
         workspaceId: string,
-        resourceName: string
+        resourceName: string,
     ) {
-        const records = await db.select({ workspaceId: table.workspaceId })
+        const records = await db
+            .select({ workspaceId: table.workspaceId })
             .from(table)
-            .where(eq(table[idColumn], resourceId))
+            .where(eq(table.id, resourceId))
             .limit(1);
 
         const record = records[0];
@@ -86,8 +100,12 @@ export class WorkspaceOwnershipGuard implements CanActivate {
         }
 
         if (record.workspaceId !== workspaceId) {
-            this.logger.warn(`IDOR Attempt Blocked: User attempted to access ${resourceName} ${resourceId} belonging to workspace ${record.workspaceId}`);
-            throw new ForbiddenException(`You do not have permission to access this ${resourceName}`);
+            this.logger.warn(
+                `IDOR Attempt Blocked: User attempted to access ${resourceName} ${resourceId} belonging to workspace ${record.workspaceId}`,
+            );
+            throw new ForbiddenException(
+                `You do not have permission to access this ${resourceName}`,
+            );
         }
     }
 }

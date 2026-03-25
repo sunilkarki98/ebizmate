@@ -1,9 +1,10 @@
 
 import { getBackendToken } from "@/lib/auth";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 import KnowledgePageClient from "./knowledge-page-client";
 
 export default async function ItemsPage() {
-    const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
+    const backendUrl = getNestApiBaseUrl();
     const backendToken = await getBackendToken();
 
     // Parallelize independent fetches

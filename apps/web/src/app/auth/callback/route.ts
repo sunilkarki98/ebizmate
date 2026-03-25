@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/utils/supabase/server'
 import { createServerClient } from '@supabase/ssr'
+import { getNestApiBaseUrl } from '@/lib/nest-api-base'
 
 
 export async function GET(request: Request) {
@@ -41,9 +41,7 @@ export async function GET(request: Request) {
             const name = data.user.user_metadata["full_name"] || email.split("@")[0];
 
             try {
-                // NEXT_PUBLIC_API_URL usually contains the /api prefix (e.g., http://localhost:3001/api)
-                const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001/api";
-                const baseUrl = backendUrl.endsWith('/') ? backendUrl.slice(0, -1) : backendUrl;
+                const baseUrl = getNestApiBaseUrl();
 
                 const response = await fetch(`${baseUrl}/auth/sync`, {
                     method: 'POST',

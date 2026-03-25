@@ -141,10 +141,34 @@ async function handleAwaitingOrderId(input: string, context: StateContext): Prom
 
     if (orderIdMatch) {
         const orderId = orderIdMatch[1];
-        const status = "Shipped (Tracking: XYZ-999)"; // TODO: query actual order system
+
+        // BUG 3 FIX: Real DB lookup instead of hardcoded status
+        try {
+            const { orders } = await import("@ebizmate/db");
+            const { eq, or, sql: sqlFn } = await import("drizzle-orm");
+
+            const order = await db.query.orders.findFirst({
+                where: or(
+                    eq(orders.id, orderId),
+                    sqlFn`${orders.id}::text LIKE ${'%' + orderId}`
+                ),
+            });
+
+            if (order) {
+                const trackingInfo = order.trackingUrl ? ` Tracking: ${order.trackingUrl}` : "";
+                return {
+                    nextState: "IDLE",
+                    reply: `Order #${orderId} status: **${order.status}** (Shipping: ${order.shippingStatus || 'Processing'}).${trackingInfo} Is there anything else I can help with?`,
+                    contextUpdates: { tempOrderId: orderId },
+                };
+            }
+        } catch (err) {
+            console.warn("[StateMachine] Order lookup failed:", err);
+        }
+
         return {
             nextState: "IDLE",
-            reply: `Order #${orderId} status: ${status}. Is there anything else I can help with?`,
+            reply: `I couldn't find an order matching #${orderId}. Please double-check the number, or contact the team directly. Is there anything else I can help with?`,
             contextUpdates: { tempOrderId: orderId },
         };
     }
@@ -367,10 +391,11 @@ async function handleConfirmingCall(input: string, context: StateContext): Promi
 // ── Negotiation Flow ────────────────────────────────────────────────────────
 
 async function handleAwaitingProposalResponse(input: string, context: StateContext): Promise<StateTransitionResult> {
-    const lower = input.toLowerCase();
+    // BUG 5 FIX: Use AI-powered detectIntent() instead of raw keyword matching
+    // This ensures non-English speakers can confirm/reject proposals
+    const intent = await detectIntent(context.workspaceId, input, context.interactionId);
 
-    // Check if customer explicitly confirms the seller's new proposal
-    if (lower.includes("yes") || lower.includes("confirm") || lower.includes("sure") || lower.includes("ok") || lower.includes("perfect") || lower.includes("fine")) {
+    if (intent === "yes") {
         if (context.workspaceId && context.orderId) {
             try {
                 const { orders } = await import("@ebizmate/db");
@@ -392,8 +417,7 @@ async function handleAwaitingProposalResponse(input: string, context: StateConte
         }
     }
 
-    // If customer explicitly cancels or says no
-    if (lower.includes("no") || lower.includes("cancel") || lower.includes("nevermind")) {
+    if (intent === "no") {
         if (context.workspaceId && context.orderId) {
             try {
                 const { orders } = await import("@ebizmate/db");

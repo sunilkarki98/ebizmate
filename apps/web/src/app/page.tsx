@@ -316,18 +316,18 @@ export default function LandingPage() {
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
               <AudienceCard
                 emoji="🛍️"
-                title="E-commerce Brands"
-                description="Stop losing sales because nobody was awake to answer 'how long is shipping to Texas?' at 2 AM."
+                title="Product Sellers"
+                description="Stop losing sales because nobody was awake to answer 'how long is shipping?' on your latest social media post at 2 AM."
               />
               <AudienceCard
-                emoji="✂️"
-                title="Salons & Services"
-                description="Let EbizMate answer 'how much is a balayage?' and 'are you open on Sunday?' while your hands are full with a client."
+                emoji="🤝"
+                title="Service Providers"
+                description="Let EbizMate handle pricing inquiries and consultation requests automatically while you focus on your actual clients."
               />
               <AudienceCard
-                emoji="📱"
-                title="Agencies"
-                description="Handle the Level 1 DMs for your entire client roster from a single dashboard, scaling your offer overnight."
+                emoji="⚡"
+                title="24/7 Engagement"
+                description="Never leave a potential customer on read. Capture leads around the clock and wake up to pre-qualified prospects."
               />
             </div>
           </div>
@@ -341,17 +341,17 @@ export default function LandingPage() {
             </div>
             <div className="grid md:grid-cols-3 gap-6">
               <TestimonialCard
-                quote="I used to spend 3 hours a day replying to 'Price?' comments. Now I just look at the dashboard and jump in when someone is actually ready to buy."
+                quote="I used to spend 3 hours a day replying to 'Price?' comments. Now I practically do zero manual replies. It saved me 14 hours a week instantly."
                 author="Sarah J."
                 role="Boutique Owner"
               />
               <TestimonialCard
-                quote="The handoff feature is what sold us. Our clients were terrified of bots ruining their brand image, but the AI stops right when it's supposed to."
+                quote="The handoff feature is what sold us. Plus, we've seen a 32% increase in our weekend lead capture because we no longer miss those midnight DMs."
                 author="Elena R."
                 role="Agency Director"
               />
               <TestimonialCard
-                quote="I'm a photographer and I can't reply to DMs during a shoot. EbizMate screens the tire-kickers and sends the hot leads straight to my WhatsApp."
+                quote="I'm a photographer and I can't reply to DMs during a shoot. EbizMate increased my booking rate by 18% just by responding lightning fast to pricing inquiries."
                 author="Mike T."
                 role="Wedding Photographer"
               />
@@ -419,6 +419,15 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      {/* Mobile Sticky CTA */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 p-4 bg-background/95 backdrop-blur border-t z-50">
+        <Link href="/dashboard" className="block w-full">
+          <Button size="lg" className="w-full h-14 text-base font-semibold bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-xl shadow-violet-500/25">
+            Start Free Trial
+          </Button>
+        </Link>
+      </div>
     </div>
   );
 }

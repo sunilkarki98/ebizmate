@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { HealthController } from './health.controller';
+import { PingController } from './ping.controller';
 import { BullModule } from '@nestjs/bullmq';
 
 @Module({
@@ -10,6 +11,6 @@ import { BullModule } from '@nestjs/bullmq';
             { name: 'ai-batch' },
         ),
     ],
-    controllers: [HealthController],
+    controllers: [HealthController, PingController],
 })
 export class HealthModule { }

@@ -6,6 +6,36 @@ import { eq, and, not } from 'drizzle-orm';
 import { InjectQueue, Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Queue, Job } from 'bullmq';
 
+const SCHEDULED_ENQUEUE_BATCH = Number.parseInt(process.env.SCHEDULED_ENQUEUE_BATCH ?? '40', 10);
+const batchSize =
+    Number.isFinite(SCHEDULED_ENQUEUE_BATCH) && SCHEDULED_ENQUEUE_BATCH > 0
+        ? SCHEDULED_ENQUEUE_BATCH
+        : 40;
+
+async function enqueueWorkspaceJobsInBatches(
+    queue: Queue,
+    jobName: string,
+    workspaceRows: { id: string }[],
+    logger: Logger,
+    label: string,
+): Promise<void> {
+    for (let i = 0; i < workspaceRows.length; i += batchSize) {
+        const slice = workspaceRows.slice(i, i + batchSize);
+        const results = await Promise.allSettled(
+            slice.map((ws) => queue.add(jobName, { workspaceId: ws.id })),
+        );
+        for (let j = 0; j < results.length; j++) {
+            const r = results[j];
+            if (r.status === 'rejected') {
+                logger.error(
+                    `Failed to queue ${label} for ${slice[j]!.id}`,
+                    r.reason,
+                );
+            }
+        }
+    }
+}
+
 @Injectable()
 export class ScheduledProcessor {
     private readonly logger = new Logger(ScheduledProcessor.name);
@@ -31,14 +61,13 @@ export class ScheduledProcessor {
             )
         });
 
-        for (const workspace of activeWorkspaces) {
-            try {
-                // M-2 FIX: Dispatch to queue instead of running synchronously
-                await this.scheduledQueue.add('morning_briefing', { workspaceId: workspace.id });
-            } catch (err) {
-                this.logger.error(`Failed to queue morning briefing for ${workspace.id}`, err);
-            }
-        }
+        await enqueueWorkspaceJobsInBatches(
+            this.scheduledQueue,
+            'morning_briefing',
+            activeWorkspaces,
+            this.logger,
+            'morning briefing',
+        );
     }
 
     // Runs every day at 7:00 PM (19:00)
@@ -57,14 +86,13 @@ export class ScheduledProcessor {
             )
         });
 
-        for (const workspace of activeWorkspaces) {
-            try {
-                // M-2 FIX: Dispatch to queue instead of running synchronously
-                await this.scheduledQueue.add('evening_summary', { workspaceId: workspace.id });
-            } catch (err) {
-                this.logger.error(`Failed to queue evening summary for ${workspace.id}`, err);
-            }
-        }
+        await enqueueWorkspaceJobsInBatches(
+            this.scheduledQueue,
+            'evening_summary',
+            activeWorkspaces,
+            this.logger,
+            'evening summary',
+        );
     }
 
     // FIX #6: Concurrency guard

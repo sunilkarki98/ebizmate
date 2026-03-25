@@ -58,6 +58,17 @@ export async function createItem(workspaceId: string, inputDto: CreateItemDto) {
     // FIX #3: Use lazy singleton Queue to prevent Redis connection leak per call
     try {
         const queue = getAIQueue();
+
+        // FIX 2: Enqueue embedding generation so the item is findable via vector search
+        await queue.add('refresh_item_embedding', {
+            itemId: newItem.id
+        }, {
+            jobId: `refresh-embedding-${newItem.id}`,
+            removeOnComplete: true,
+            attempts: 3,
+            backoff: { type: 'exponential' as const, delay: 5000 }
+        });
+
         await queue.add('smart_notification', {
             workspaceId,
             itemId: newItem.id
@@ -67,7 +78,7 @@ export async function createItem(workspaceId: string, inputDto: CreateItemDto) {
         });
     } catch (err) {
         // Don't fail item creation if notification enqueue fails
-        console.error('[createItem] Failed to enqueue smart notification:', err);
+        console.error('[createItem] Failed to enqueue jobs:', err);
     }
 
     return newItem;
@@ -95,6 +106,25 @@ export async function updateItem(workspaceId: string, id: string, inputDto: Upda
         )
         .returning();
 
+    // FIX 3: Refresh embedding if name or content changed
+    const nameChanged = dto.name !== undefined && dto.name !== existingItem.name;
+    const contentChanged = dto.content !== undefined && dto.content !== existingItem.content;
+    if (nameChanged || contentChanged) {
+        try {
+            const queue = getAIQueue();
+            await queue.add('refresh_item_embedding', {
+                itemId: id
+            }, {
+                jobId: `refresh-embedding-${id}-${Date.now()}`,
+                removeOnComplete: true,
+                attempts: 3,
+                backoff: { type: 'exponential' as const, delay: 5000 }
+            });
+        } catch (err) {
+            console.error('[updateItem] Failed to enqueue embedding refresh:', err);
+        }
+    }
+
     return updated;
 }
 
@@ -111,9 +141,11 @@ export async function refreshItemEmbedding(itemId: string) {
         const textToEmbed = `${item.name}: ${item.content}`;
         const result = await ai.embed(textToEmbed);
 
+        // FIX 6: Also set embeddingModel for provenance tracking
         await db.update(items)
             .set({
                 embedding: result.embedding,
+                embeddingModel: (result as any).model || 'unknown',
                 updatedAt: new Date()
             })
             .where(eq(items.id, itemId));

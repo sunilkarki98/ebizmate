@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Body, Param, Req, UseGuards } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminGuard } from '../auth/admin.guard';
+import { AdminGuard, invalidateAdminRoleCache } from '../auth/admin.guard';
 import { WorkspacePlanDto, ToggleAiPauseDto, FetchModelsDto, UpdateAiSettingsDto } from '@ebizmate/contracts';
 import type { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 
@@ -27,7 +27,9 @@ export class AdminController {
     @Put('users/:id/role')
     async updateUserRole(@Req() req: AuthenticatedRequest, @Param('id') userId: string, @Body('role') role: 'admin' | 'user') {
         const adminId = this.getAdminId(req);
-        return this.adminService.updateUserRole(adminId, userId, role);
+        const result = await this.adminService.updateUserRole(adminId, userId, role);
+        invalidateAdminRoleCache(userId);
+        return result;
     }
 
     @Get('workspaces')

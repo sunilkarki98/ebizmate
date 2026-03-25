@@ -8,10 +8,8 @@
 
 import { db } from "@ebizmate/db";
 import { items, itemRelations } from "@ebizmate/db";
-import { eq, or, and, desc, sql, gt, isNull, inArray, ilike } from "drizzle-orm";
+import { eq, or, and, desc, sql, gt, isNull, inArray } from "drizzle-orm";
 import { cosineDistance } from "drizzle-orm";
-import { sanitizeLikeInput } from "@ebizmate/shared";
-import type { ChatParams } from "@ebizmate/contracts";
 import type { RetrievedKnowledge, Intent, ConversationTurn } from "./types.js";
 import { VECTOR_SIMILARITY_THRESHOLD, HYBRID_SCORE_THRESHOLD } from "./types.js";
 
@@ -24,15 +22,20 @@ const STOP_WORDS = new Set(["the", "a", "an", "and", "or", "but", "is", "are", "
 // ─── Hybrid Scoring ─────────────────────────────────────────────────────────
 
 function computeHybridScore(
-    similarity: number,
-    keywordScore: number,
+    vectorRank: number,
+    keywordRank: number,
     recencyBoost: number,
     intentBoost: number = 0,
 ): number {
-    // Elevate the baseline similarity if there is an exact keyword match so it safely passes the 0.4 threshold.
-    // Floor is now 0.5, ensuring math (0.5*0.5 + 0.25*1.0) = 0.5 > 0.4.
-    const effectiveSimilarity = Math.max(similarity, keywordScore > 0 ? 0.5 : 0);
-    return 0.5 * effectiveSimilarity + 0.25 * keywordScore + 0.1 * recencyBoost + 0.15 * intentBoost;
+    const k = 60;
+    const rrfVector = vectorRank > 0 ? 1 / (k + vectorRank) : 0;
+    const rrfKeyword = keywordRank > 0 ? 1 / (k + keywordRank) : 0;
+
+    // Normalize RRF to roughly 0-1 scale so existing HYBRID_SCORE_THRESHOLD works.
+    // Max RRF base score is ~0.98.
+    const baseScore = (rrfVector + rrfKeyword) * 30;
+
+    return baseScore + 0.1 * recencyBoost + 0.15 * intentBoost;
 }
 
 /**
@@ -79,6 +82,7 @@ export async function retrieveKnowledge(
     interactionId?: string,
     history: ConversationTurn[] = [],
     maxResults: number = 8,
+    precomputedEmbedding?: number[],
 ): Promise<RetrievedKnowledge[]> {
     // ── 1. Stop-word Filtering for Keywords ──
     const keywords = customerMessage
@@ -104,7 +108,8 @@ export async function retrieveKnowledge(
         const [vectorResults, keywordResults] = await Promise.all([
             // ── Vector Search ──
             (async () => {
-                const embedding = (await ai.embed(searchContext, interactionId)).embedding;
+                // BUG 2 FIX: Use pre-computed embedding if available to avoid duplicate ai.embed() call
+                const embedding = precomputedEmbedding ?? (await ai.embed(searchContext, interactionId)).embedding;
                 const similarityExpr = sql<number>`1 - (${cosineDistance(items.embedding, embedding)})`;
 
                 return db.select({
@@ -123,37 +128,47 @@ export async function retrieveKnowledge(
             // ── Keyword Search (Parallel) ──
             (async () => {
                 if (keywords.length === 0) return [];
-                const conditions = keywords.map(kw => {
-                    const safeKw = sanitizeLikeInput(kw);
-                    return or(ilike(items.name, `%${safeKw}%`), ilike(items.content, `%${safeKw}%`));
-                });
-                return db.select().from(items)
+                const keywordString = keywords.join(" ");
+
+                // Use pg_trgm similarity for True Full-Text Search
+                const similarityScore = sql<number>`greatest(
+                    similarity(${items.name}, ${keywordString}),
+                    similarity(${items.content}, ${keywordString})
+                )`;
+
+                return db.select({
+                    item: items,
+                    score: similarityScore
+                }).from(items)
                     .where(and(
                         eq(items.workspaceId, workspaceId),
-                        or(...conditions),
+                        gt(similarityScore, 0.1),
                         or(isNull(items.expiresAt), gt(items.expiresAt, new Date())),
                     ))
+                    .orderBy(desc(similarityScore))
                     .limit(maxResults);
             })(),
         ]);
 
-        // ── Hybrid Scoring & Re-ranking ──
+        // ── Hybrid Scoring & Re-ranking (RRF) ──
         const itemsMap = new Map<string, {
             item: typeof items.$inferSelect;
-            similarity: number;
-            keywordScore: number;
+            vectorRank: number;
+            keywordRank: number;
         }>();
 
-        vectorResults.forEach(r => {
-            itemsMap.set(r.item.id, { item: r.item, similarity: r.similarity, keywordScore: 0 });
+        vectorResults.forEach((r, index) => {
+            const rank = index + 1;
+            itemsMap.set(r.item.id, { item: r.item, vectorRank: rank, keywordRank: 0 });
         });
 
-        keywordResults.forEach(ki => {
-            const entry = itemsMap.get(ki.id);
+        keywordResults.forEach((r, index) => {
+            const rank = index + 1;
+            const entry = itemsMap.get(r.item.id);
             if (entry) {
-                entry.keywordScore = 1.0; // Found in both vector + keyword
+                entry.keywordRank = rank;
             } else {
-                itemsMap.set(ki.id, { item: ki, similarity: 0, keywordScore: 1.0 });
+                itemsMap.set(r.item.id, { item: r.item, vectorRank: 0, keywordRank: rank });
             }
         });
 
@@ -171,8 +186,8 @@ export async function retrieveKnowledge(
                 }
 
                 const hybridScore = computeHybridScore(
-                    entry.similarity,
-                    entry.keywordScore,
+                    entry.vectorRank,
+                    entry.keywordRank,
                     recencyBoost,
                     intentBoost,
                 );
@@ -187,11 +202,18 @@ export async function retrieveKnowledge(
         const rankedItemIds = rankedItems.map(e => e.item.id);
 
         if (rankedItemIds.length > 0) {
-            const relations = await db.select({ relatedItemId: itemRelations.relatedItemId })
-                .from(itemRelations)
-                .where(inArray(itemRelations.itemId, rankedItemIds));
+            // FIX 5: Query both forward AND reverse relations (relations are uni-directional)
+            const [forwardRelations, reverseRelations] = await Promise.all([
+                db.select({ relatedItemId: itemRelations.relatedItemId })
+                    .from(itemRelations)
+                    .where(inArray(itemRelations.itemId, rankedItemIds)),
+                db.select({ relatedItemId: itemRelations.itemId })
+                    .from(itemRelations)
+                    .where(inArray(itemRelations.relatedItemId, rankedItemIds)),
+            ]);
 
-            relations.forEach(r => relatedIds.add(r.relatedItemId));
+            forwardRelations.forEach(r => relatedIds.add(r.relatedItemId));
+            reverseRelations.forEach(r => relatedIds.add(r.relatedItemId));
         }
 
         // Remove already-fetched items from related set

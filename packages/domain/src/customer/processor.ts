@@ -1,5 +1,5 @@
-import { eq, and, desc } from "drizzle-orm";
-// Drizzle db imports removed to enforce DAO pattern for better testability
+import { eq, and, desc, sql } from "drizzle-orm";
+import { db } from "@ebizmate/db";
 import { findCustomerByPlatformId, updateCustomerPreferences, updateCustomerConversationState } from "./dao.js";
 import { getInteractionWithRelations, updateInteractionStatus, saveSystemEventInteraction, countActiveChats } from "../interactions/dao.js";
 import { createOrderTransaction } from "../orders/dao.js";
@@ -32,6 +32,15 @@ async function translateSystemMessage(
     if (!authorId) return systemMessage;
 
     try {
+        // COST 2 FIX: Skip translation for English-configured workspaces
+        const { workspaces } = await import("@ebizmate/db");
+        const ws = await db.query.workspaces.findFirst({
+            where: eq(workspaces.id, workspaceId),
+            columns: { settings: true }
+        });
+        const lang = ((ws?.settings as any)?.language || "").toLowerCase();
+        if (lang === "english" || lang === "en") return systemMessage;
+
         const history = await fetchConversationHistory(workspaceId, authorId, interactionId, 5);
         if (history.length === 0) return systemMessage; // No context to translate from
 
@@ -281,6 +290,44 @@ export async function processInteraction(interactionId: string) {
         reply = "I want to make sure I give you the perfect answer, let me double-check that with the team and get right back to you!";
     }
 
+    // BUG 1 FIX: Process appointment/call state transitions BEFORE dispatching
+    // This prevents double-sending (AI reply + state machine prompt).
+    if (suggestedActions.includes("appointment_request") && !actuallyEscalate && customer) {
+        try {
+            await updateCustomerConversationState(customer.id, "COLLECTING_SERVICE", {
+                collectionType: "appointment",
+                workspaceId,
+                interactionId,
+                customerName: interaction.authorName || interaction.authorId || "Unknown",
+                customerPlatformId: interaction.authorId || "",
+                customerId: customer.id,
+                customerMessage: interaction.content,
+            });
+            const rawReply = "I'd love to help you book that! What service are you looking for?";
+            reply = await translateSystemMessage(workspaceId, interaction.authorId, interactionId, rawReply);
+        } catch (err) {
+            console.error("[Processor] Failed to start appointment collection:", err);
+        }
+    }
+
+    if (suggestedActions.includes("call_request") && !actuallyEscalate && customer) {
+        try {
+            await updateCustomerConversationState(customer.id, "COLLECTING_PHONE", {
+                collectionType: "call_request",
+                workspaceId,
+                interactionId,
+                customerName: interaction.authorName || interaction.authorId || "Unknown",
+                customerPlatformId: interaction.authorId || "",
+                customerId: customer.id,
+                customerMessage: interaction.content,
+            });
+            const rawReply = "Of course! What's the best phone number to reach you?";
+            reply = await translateSystemMessage(workspaceId, interaction.authorId, interactionId, rawReply);
+        } catch (err) {
+            console.error("[Processor] Failed to start call collection:", err);
+        }
+    }
+
     // 4️⃣ Determine final status based on orchestrator output
     let finalStatus: "PROCESSED" | "NEEDS_REVIEW" | "FAILED" = "PROCESSED";
     if (actuallyEscalate) {
@@ -290,11 +337,8 @@ export async function processInteraction(interactionId: string) {
     // 5️⃣ Execute escalation side-effects (orchestrator only returned data — we own the writes)
     if (actuallyEscalate) {
         try {
-            let customerId: string | null = null;
-            if (interaction.authorId) {
-                const cust = await findCustomerByPlatformId(workspaceId, interaction.authorId);
-                customerId = cust?.id || null;
-            }
+            // BUG 2 FIX: Reuse existing customer instead of re-fetching
+            const customerId = customer?.id || null;
 
             const ai = await getAIService(workspaceId, "customer");
             await createEscalation(ai, {
@@ -371,60 +415,30 @@ export async function processInteraction(interactionId: string) {
         }
     });
 
-    // 8️⃣ System-level action dispatch — CREATE NOTIFICATIONS
-
-    // (Deprecated order collection logic removed in favor of Native Cart AI Tools)
-
-    // Appointments → start multi-turn collection flow (state machine)
-    if (suggestedActions.includes("appointment_request") && !actuallyEscalate && customer) {
-        try {
-            await updateCustomerConversationState(customer.id, "COLLECTING_SERVICE", {
-                collectionType: "appointment",
-                workspaceId,
-                interactionId,
-                customerName: interaction.authorName || interaction.authorId || "Unknown",
-                customerPlatformId: interaction.authorId || "",
-                customerId: customer.id,
-                customerMessage: interaction.content,
-            });
-            const rawReply = "I'd love to help you book that! What service are you looking for?";
-            reply = await translateSystemMessage(workspaceId, interaction.authorId, interactionId, rawReply);
-            await updateInteractionStatus(interactionId, { response: reply });
-        } catch (err) {
-            console.error("[Processor] Failed to start appointment collection:", err);
-        }
-    }
-
-    // Call requests → start multi-turn collection flow (state machine)
-    if (suggestedActions.includes("call_request") && !actuallyEscalate && customer) {
-        try {
-            await updateCustomerConversationState(customer.id, "COLLECTING_PHONE", {
-                collectionType: "call_request",
-                workspaceId,
-                interactionId,
-                customerName: interaction.authorName || interaction.authorId || "Unknown",
-                customerPlatformId: interaction.authorId || "",
-                customerId: customer.id,
-                customerMessage: interaction.content,
-            });
-            const rawReply = "Of course! What's the best phone number to reach you?";
-            reply = await translateSystemMessage(workspaceId, interaction.authorId, interactionId, rawReply);
-            await updateInteractionStatus(interactionId, { response: reply });
-        } catch (err) {
-            console.error("[Processor] Failed to start call collection:", err);
-        }
-    }
-
     // 9️⃣ ARCH-2 FIX: Async side effects — use Promise.allSettled instead of fire-and-forget
-    // This ensures failures are logged and don't crash, but are also visible.
     const sideEffects: Array<{ name: string; promise: Promise<any> }> = [];
 
     if (actuallyEscalate) {
-        sideEffects.push({ name: 'linkAndVerifyKB', promise: linkAndVerifyKB(workspaceId) });
+        // COST 3 FIX: Limit to batch of 1 instead of full workspace scan
+        sideEffects.push({ name: 'linkAndVerifyKB', promise: linkAndVerifyKB(workspaceId, 1) });
     }
     if (customer?.id) {
         sideEffects.push({ name: 'updateInboxMeta', promise: updateCustomerInboxMeta(customer.id) });
-        sideEffects.push({ name: 'summarizeProfile', promise: summarizeCustomerProfile(workspaceId, customer.id) });
+
+        // COST 1 FIX: Only summarize profile every 5th interaction to save LLM calls
+        try {
+            const { interactions: ixTable } = await import("@ebizmate/db");
+            const ixCount = await db.select({ count: sql<number>`count(*)::int` })
+                .from(ixTable)
+                .where(eq(ixTable.customerId, customer.id));
+            const totalIx = ixCount[0]?.count || 0;
+            if (totalIx > 0 && totalIx % 5 === 0) {
+                sideEffects.push({ name: 'summarizeProfile', promise: summarizeCustomerProfile(workspaceId, customer.id) });
+            }
+        } catch {
+            // Fallback: just run it
+            sideEffects.push({ name: 'summarizeProfile', promise: summarizeCustomerProfile(workspaceId, customer.id) });
+        }
     }
 
     if (sideEffects.length > 0) {

@@ -2,6 +2,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { updateProfile } from "@/lib/profile-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,11 +33,10 @@ export function ProfileForm({ initialData }: { initialData: any }) {
         startTransition(async () => {
             try {
                 await updateProfile(formData);
-                // Simple toast/alert simulation if no toast lib
-                const event = new CustomEvent("toast", { detail: "Profile updated successfully!" });
-                window.dispatchEvent(event);
+                toast.success("Profile updated successfully!");
             } catch (error) {
                 console.error(error);
+                toast.error("Could not save profile. Try again.");
             }
         });
     };
@@ -160,18 +160,6 @@ export function ProfileForm({ initialData }: { initialData: any }) {
                 </Button>
             </div>
 
-            {/* Simple Success Message (Ephemeral) */}
-            <div id="success-msg" className="hidden fixed bottom-4 right-4 bg-green-500 text-white px-4 py-2 rounded shadow-lg">
-                Saved!
-            </div>
-            <script dangerouslySetInnerHTML={{
-                __html: `
-                window.addEventListener('toast', () => {
-                    const el = document.getElementById('success-msg');
-                    el.classList.remove('hidden');
-                    setTimeout(() => el.classList.add('hidden'), 3000);
-                });
-            `}} />
         </form>
     );
 }

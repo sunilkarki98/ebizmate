@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { getBackendToken } from "@/lib/auth";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 import { Suspense } from "react";
 import InboxClient from "./inbox-client";
 
@@ -7,7 +8,7 @@ export default async function InboxPage() {
     const session = await auth();
     if (!session?.user?.id) return null;
 
-    const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
+    const backendUrl = getNestApiBaseUrl();
     const backendToken = await getBackendToken();
 
     // Fetch Workspace Info and Inbox Customers concurrently to prevent Waterfall latency

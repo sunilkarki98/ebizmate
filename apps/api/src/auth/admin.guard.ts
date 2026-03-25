@@ -8,6 +8,11 @@ import { eq } from 'drizzle-orm';
 const _roleCache = new Map<string, { role: string; expiresAt: number }>();
 const ROLE_CACHE_TTL = 60_000; // 60 seconds
 
+/** Call after mutating a user's role so all API instances eventually converge (same pod clears immediately). */
+export function invalidateAdminRoleCache(userId: string): void {
+  _roleCache.delete(userId);
+}
+
 @Injectable()
 export class AdminGuard implements CanActivate {
     async canActivate(context: ExecutionContext): Promise<boolean> {

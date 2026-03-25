@@ -1,4 +1,5 @@
 import { auth, getBackendToken } from "@/lib/auth";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 import { redirect } from "next/navigation";
 import CoachClient from "./coach-client";
 
@@ -6,7 +7,7 @@ export default async function CoachPage() {
     const session = await auth();
     if (!session?.user?.id) redirect("/signin");
 
-    const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
+    const backendUrl = getNestApiBaseUrl();
     const backendToken = await getBackendToken();
 
     // Default intro message

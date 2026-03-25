@@ -16,10 +16,11 @@ const conn =
             // We only throw if something actually tries to use the connection.
             return undefined;
         }
+        const max = Number.parseInt(process.env['DATABASE_POOL_MAX'] ?? '30', 10);
         return new Pool({
             connectionString: process.env['DATABASE_URL'],
             connectionTimeoutMillis: 10000,
-            max: 10,
+            max: Number.isFinite(max) && max > 0 ? max : 30,
         });
     })();
 

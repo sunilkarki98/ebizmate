@@ -1,5 +1,6 @@
 
 import { auth, getBackendToken } from "@/lib/auth";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 import {
     Table,
     TableBody,
@@ -15,7 +16,7 @@ export default async function CustomersPage() {
     const session = await auth();
     if (!session?.user?.id) return null;
 
-    const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
+    const backendUrl = getNestApiBaseUrl();
     const backendToken = await getBackendToken();
 
     // 1. Fetch Workspace (for platform logo context)

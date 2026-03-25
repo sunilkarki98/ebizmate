@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { auth, getBackendToken } from "@/lib/auth";
+import { getNestApiBaseUrl } from "@/lib/nest-api-base";
 
 // GET /api/auth/callback/[platform]
 export async function GET(
@@ -25,9 +27,20 @@ export async function GET(
         return NextResponse.redirect(new URL(`/dashboard/connect?error=no_code`, request.url));
     }
 
+    const cookieStore = await cookies();
+    const expectedState = cookieStore.get("oauth_state")?.value;
+    const returnedState = url.searchParams.get("state");
+    if (expectedState && returnedState !== expectedState) {
+        cookieStore.delete("oauth_state");
+        return NextResponse.redirect(new URL(`/dashboard/connect?error=invalid_state`, request.url));
+    }
+    if (expectedState) {
+        cookieStore.delete("oauth_state");
+    }
+
     // Pass the authorization code to our NestJS backend to securely exchange for long-lived Access Tokens
     try {
-        const backendUrl = process.env["NEXT_PUBLIC_API_URL"] || "http://localhost:3001";
+        const backendUrl = getNestApiBaseUrl();
         const backendToken = await getBackendToken();
 
         const response = await fetch(`${backendUrl}/auth/social/callback`, {

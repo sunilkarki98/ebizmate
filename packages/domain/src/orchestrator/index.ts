@@ -12,6 +12,7 @@ export { generateResponse } from "./response-generator.js";
 export { evaluateConfidence } from "./confidence-evaluator.js";
 export { createEscalation, resolveEscalation } from "./escalation-manager.js";
 export { extractKnowledge } from "./knowledge-extractor.js";
+export { invalidateWorkspaceCache } from "./semantic-cache.js";
 
 // Types
 export type {
