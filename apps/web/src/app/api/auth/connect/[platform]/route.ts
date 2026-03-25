@@ -12,19 +12,19 @@ const META_PLATFORMS = new Set([
 ]);
 
 function metaOAuthConfigured(): boolean {
-    return !!(process.env.META_APP_ID && process.env.META_APP_SECRET);
+    return !!(process.env['META_APP_ID'] && process.env['META_APP_SECRET']);
 }
 
 function tiktokOAuthConfigured(): boolean {
-    const key = process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_ID;
-    const secret = process.env.TIKTOK_CLIENT_SECRET || process.env.TIKTOK_APP_SECRET;
+    const key = process.env['TIKTOK_CLIENT_KEY'] || process.env['TIKTOK_APP_ID'];
+    const secret = process.env['TIKTOK_CLIENT_SECRET'] || process.env['TIKTOK_APP_SECRET'];
     return !!(key && secret);
 }
 
 function allowMockConnect(): boolean {
     return (
         process.env.NODE_ENV !== "production" ||
-        process.env.ENABLE_MOCK_SOCIAL_OAUTH === "true"
+        process.env['ENABLE_MOCK_SOCIAL_OAUTH'] === "true"
     );
 }
 
@@ -42,7 +42,7 @@ export async function GET(
     const platform = rawPlatform.toLowerCase();
 
     const appBase =
-        process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
+        process.env['NEXT_PUBLIC_APP_URL'] || new URL(request.url).origin;
     const redirectUri = `${appBase.replace(/\/$/, "")}/api/auth/callback/${platform}`;
 
     const cookieStore = await cookies();
@@ -58,10 +58,10 @@ export async function GET(
     if (META_PLATFORMS.has(platform)) {
         if (metaOAuthConfigured()) {
             const scope =
-                process.env.META_OAUTH_SCOPES ||
+                process.env['META_OAUTH_SCOPES'] ||
                 "pages_messaging,pages_manage_metadata,business_management";
             const authUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth");
-            authUrl.searchParams.set("client_id", process.env.META_APP_ID!);
+            authUrl.searchParams.set("client_id", process.env['META_APP_ID']!);
             authUrl.searchParams.set("redirect_uri", redirectUri);
             authUrl.searchParams.set("scope", scope);
             authUrl.searchParams.set("response_type", "code");
@@ -79,9 +79,9 @@ export async function GET(
     } else if (platform === "tiktok") {
         if (tiktokOAuthConfigured()) {
             const clientKey =
-                process.env.TIKTOK_CLIENT_KEY || process.env.TIKTOK_APP_ID!;
+                process.env['TIKTOK_CLIENT_KEY'] || process.env['TIKTOK_APP_ID']!;
             const scope =
-                process.env.TIKTOK_OAUTH_SCOPES ||
+                process.env['TIKTOK_OAUTH_SCOPES'] ||
                 "user.info.basic,video.list";
             const authUrl = new URL("https://www.tiktok.com/v2/auth/authorize/");
             authUrl.searchParams.set("client_key", clientKey);

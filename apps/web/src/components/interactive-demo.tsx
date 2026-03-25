@@ -22,11 +22,13 @@ export function InteractiveDemo() {
             setVisibleMessages([]);
             for (let i = 0; i < messages.length; i++) {
                 if (!mounted) break;
-                setIsTyping(messages[i].sender === "bot");
-                await new Promise(r => setTimeout(r, messages[i].delay - (i === 0 ? 0 : messages[i - 1].delay)));
+                const msg = messages[i]!;
+                setIsTyping(msg.sender === "bot");
+                const prevDelay = i === 0 ? 0 : messages[i - 1]!.delay;
+                await new Promise(r => setTimeout(r, msg.delay - prevDelay));
                 if (!mounted) break;
                 setIsTyping(false);
-                setVisibleMessages(prev => [...prev, messages[i]]);
+                setVisibleMessages(prev => [...prev, msg]);
             }
         };
 
